@@ -1,0 +1,10 @@
+This is a simple Arduino sketch for a cheap ESP8266 board such as the
+D1 Mini to interface with a Pico in order to reboot it or put it into 
+BOOTSEL mode via WiFi.  It should be fairly easy to port to ESP32.
+
+To use your shiny new WiFi Reboot/Bootsel module with the build system,
+set the environment variable PICO_BOOTCTL_HOSTNAME to the hostname or
+IP address of the ESP module connected to your Pico.
+
+The default hostname for the ESP module is 'picobounce'.
+
