@@ -1,23 +1,57 @@
 ;
-; Composite video output
+; NTSC color composite video output PIO program
 ; 
+; Original program based on the PIO Blink example in the SDK
+; and B&W PAL composite PIO code found at
+; https://github.com/breakintoprogram/pico-mposite/blob/main/cvideo.pio
 
 ; SET pins should be mapped to your DAC
 
-.program blink
+.program ntsc_composite
 .wrap_target
-	set pins, 1
-	set pins, 0 
-.wrap             ; Generate continuous colorburst signal
+	irq set 0
+loop:
+	out X, 8
+	mov pins, X
+	jmp X-- loop
+.wrap
 
 % c-sdk {
 // this is a raw helper function for use by the user which sets up the GPIO output, and configures the SM to output on a particular pin
 
-void blink_program_init(PIO pio, uint sm, uint offset, uint pin) {
-   pio_gpio_init(pio, pin);
-   pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
-   pio_sm_config c = blink_program_get_default_config(offset);
-   sm_config_set_set_pins(&c, pin, 1);
+void ntsc_composite_program_init(PIO pio, uint sm, uint offset, uint first_pin,
+									uint pin_count) {
+   // Set up pins to work with PIO
+   for (int i=first_pin; i<first_pin+pin_count; i++) {
+   	pio_gpio_init(pio,i);
+   }
+   
+   // Set our pins to PIO, output
+   pio_sm_set_consecutive_pindirs(pio, sm, first_pin, pin_count, true);
+   
+   // Grab our configuration object
+   pio_sm_config c = ntsc_composite_program_get_default_config(offset);
+   
+   // Set our PIO program's "set pins" 
+   // i.e. the pins that will be affected in a side-set
+   sm_config_set_set_pins(&c, first_pin, pin_count);
+   
+   // Set our PIO program's output pins   
+   sm_config_set_out_pins(&c, first_pin, pin_count);
+   
+   // Set our PIO program's output shifting parameters:
+   // Shift OSR left (=MSB first), do autopull (=we don't need to explictly
+   // pull), conditionally pull every 8 bits (can probably be set to 32?)
+   
+   sm_config_set_out_shift(&c, false, true, 8);
+   
+   // Use a single 8-word TX FIFO instead of the 2 default FIFOs
+   sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+   
+   // Initialize the state machine
    pio_sm_init(pio, sm, offset, &c);
+   
+   // Original PIO program sets the PIO frequency here, we 
+   // do it in the main program
 }
 %}
