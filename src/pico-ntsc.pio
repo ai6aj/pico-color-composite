@@ -9,11 +9,9 @@
 
 .program ntsc_composite
 .wrap_target
-	irq set 0
-loop:
-	out X, 8
-	mov pins, X [8]
-	jmp X-- loop
+	out pins, 8 [10]
+;	mov pins, X [8]
+;	nop
 .wrap
 
 % c-sdk {
