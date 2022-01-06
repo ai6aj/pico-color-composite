@@ -1,10 +1,23 @@
 /**
- * Multicore Blink - core 0 turns the LED on, core 1 turns it off
- *
- * Modified from Blink example for Raspberry Pi Pico
- * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
- *
- * SPDX-License-Identifier: BSD-3-Clause
+	
+	For B&W mode -
+		Just disable colorburst.
+		
+	For color mode -
+		We need to sum the color signal and luma signal.
+		
+		i.e. generate a 16-value sine wave 
+		Use chroma as an index into this
+		
+		Look up chroma, add luma
+		
+		Due to our limited R-ladder we only have 4 bits total
+		which will limit luma to 3 bits.  By subsampling chroma
+		signal and generating 4 bits of output we can hopefully
+		make real color happen.
+		
+		
+
  */
 
 #include <stdlib.h>
@@ -65,7 +78,7 @@ int main() {
 	// A more typical frequency, but 
 	// shows a fair amount of jitter
 	// on the scope
-	set_sys_clock_khz(1250000,true);
+	set_sys_clock_khz(2500000,true);
 #endif
 
     stdio_init_all();
@@ -97,39 +110,27 @@ uint dma_channel;
 // Note that you can probably improve color rendition
 // By making each line 227.5 clocks.  Since we output
 // at 2x resolution this is feasible.
-#define ALTERNATE_COLORBURST_PHASE
-#define LINE_WIDTH (227*2-1)
+
+
+// #define ALTERNATE_COLORBURST_PHASE
+
+#define SAMPLES_PER_CLOCK	2
+
+#ifdef ALTERNATE_COLORBURST_PHASE
+#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
+#else 
+#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
+#endif 
+
 #define MAX_DAC_OUT	31
 #define MIN_DAC_OUT 0
-#define DAC_RANGE (MAX_DAC_OUT-MIN_DAC_OUT)
+#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
 
-
-#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)DAC_RANGE)+MIN_DAC_OUT+0.5)
+#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
 #define SYNC_VAL			MIN_DAC_OUT
-#define BLACK_VAL			(uint)(((47.5/140.0)*(float)DAC_RANGE)+MIN_DAC_OUT+0.5)
-#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)DAC_RANGE)+MIN_DAC_OUT+0.5)
-#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)DAC_RANGE)+MIN_DAC_OUT+0.5)
-#define VIDEO
-#define FRONT_PORCH_CLOCKS	5*2
-#define BLANKING_IRE		0
-#define FRONT_PORCH_VALUE	BLANKING_IRE
 #define SYNC_TIP_CLOCKS 	33
-#define SYNC_TIP_IRE		-40
-#define BREEZEWAY_CLOCKS	2*2
-#define COLOR_BURST_CLOCKS	9
-#define BACK_PORCH_CLOCKS	6*2
-#define VIDEO_CLOCKS		188*2
 
-/*
-	Color burst = exactly 9 clocks per spec
-	Back porch = ~1.6uS = 5.7 clocks, round to 6
-	Total HSYNC = 39 clocks = (5+17+2+9+6)
-	
-	Video information: 52.6uS, 224 color clocks
-	Total line width: 227.5
-	
-	Total lines: 262.5 lines, usually 262 are written
-*/
 
 uint8_t vblank_line[LINE_WIDTH+1];
 uint8_t black_line[LINE_WIDTH+1];
@@ -188,15 +189,22 @@ void make_video_line() {
 	memcpy(pingpong_lines[0],black_line,LINE_WIDTH);
 	memcpy(pingpong_lines[1],black_line_2,LINE_WIDTH);
 
-	for (int i=0; i<188; i++) {
-		if (i & 1) {
-			pingpong_lines[0][67+i] = 11;
-			pingpong_lines[1][67+i] = 31;
-		}
-		else {
-			pingpong_lines[0][67+i] = 31;
-			pingpong_lines[1][67+i] = 11;
-		}
+//	int phase[16] = { 0,4,7,9,10,9,7,4,0,-4,-7,-9,-10,-9,-7,-4 };
+
+	int phase[16] = { 0,1,2,3,
+		3,3,2,1,
+		0,-1,-2,-3,
+		-3,-3,-2,-1};
+
+		
+	int ph = 14;
+
+/*
+	for (int i=1; i<189; i+=2) {
+			pingpong_lines[0][66+i] = 31;
+			pingpong_lines[0][67+i] = 21;
+			pingpong_lines[1][66+i] = 31;
+			pingpong_lines[1][67+i] = 21;
 	}	
 	
 	for (int i=188; i<188+191; i++) {
@@ -208,7 +216,7 @@ void make_video_line() {
 			pingpong_lines[0][67+i] = 11;	
 			pingpong_lines[1][67+i] = 31;
 		}
-	}
+	} */
 	
 }
 
@@ -290,7 +298,11 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 #ifdef USE_OVERCLOCK
 	pio->sm[sm].clkdiv = (2 << 16 + 0);
 #else
-	pio->sm[sm].clkdiv = ((17 << 16) + (118 << 8));
+	// pio->sm[sm].clkdiv = ((17 << 16) + (118 << 8));
+
+	float PIO_clkdiv = 250000000.0 / (3579545.0*2);
+
+	pio->sm[sm].clkdiv = (uint32_t) (PIO_clkdiv * (1 << 16)); // INT portion: 0xffff0000, FRAC portion: 0x0000ff00	
 #endif
 
 
