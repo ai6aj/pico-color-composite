@@ -82,9 +82,49 @@ void video_core() {
 
 uint dma_channel;
 
-// #define ALTERNATE_COLORBURST_PHASE
-
 #define SAMPLES_PER_CLOCK	4
+#define	DAC_BITS	5
+
+
+/* 
+	Values needed to make timing calculations
+*/
+
+#define NTSC_COLORBURST_FREQ	3579545.0
+#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
+#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+
+
+/*
+	Raw DAC values to generate proper levels.
+*/
+#define MAX_DAC_OUT	((1 << DAC_BITS)-1)
+#define MIN_DAC_OUT	0
+#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define SYNC_VAL			MIN_DAC_OUT
+
+
+/*
+	Various timings needed to generate a proper NTSC signal.
+*/
+#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
+#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+#define VIDEO_START			COLOR_BURST_START+SAMPLES_PER_CLOCK*30
+#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
+
+/*
+	Set the total line width, in color clocks.
+	ALTERNATE_COLORBURST_PHASE will generate proper 262.5
+	color clock lines but is only partially supported at
+	the moment (and doesn't seem to be necessary.)
+	
+	Note that a lot of old equipment uses 228 color clock
+	lines; a lot of new equipment doesn't sync well to this
+	but is just fine with 226 color clocks.  
+*/
 
 #ifdef ALTERNATE_COLORBURST_PHASE
 #define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
@@ -92,15 +132,17 @@ uint dma_channel;
 #define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
 #endif 
 
-#define MAX_DAC_OUT	31
-#define MIN_DAC_OUT 0
-#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
 
-#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define SYNC_VAL			MIN_DAC_OUT
-
-
+/*
+	Buffers for our vblank line etc.
+	
+	Note that virtually every TV made since the late 70s is 
+	perfectly happy with one long VSYNC pulse and does not use
+	the pre/post equalization pulses.  So there's no point in
+	implementing the full VBLANK spec unless you have an absolutely
+	ancient analog TV that you want to use.
+	
+*/
 uint8_t vblank_line[LINE_WIDTH+1];
 uint8_t black_line[LINE_WIDTH+1];
 uint8_t black_line_2[LINE_WIDTH];
@@ -111,7 +153,8 @@ uint8_t pingpong_lines[2][LINE_WIDTH];
 //uint8_t video_line[LINE_WIDTH+1];
 //uint8_t video_line2[LINE_WIDTH+1];
 
-// #define IN_LIVING_COLOR 1
+
+int want_color=1;
 
 void make_vsync_line() {
 	int ofs = 0;
@@ -119,12 +162,6 @@ void make_vsync_line() {
 	memset(vblank_line,SYNC_VAL,210*SAMPLES_PER_CLOCK);
 }
 
-#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
-#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
-#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_START			COLOR_BURST_START+SAMPLES_PER_CLOCK*30
-#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 
 void make_black_line() {
@@ -140,18 +177,20 @@ void make_black_line() {
 	
 	// Starts at 5.3uS = 37.94318 clocks
 
-	#if SAMPLES_PER_CLOCK==2
-	for (int i=0; i<10; i++) {
-		black_line[COLOR_BURST_START+i*2] = COLOR_BURST_HI_VAL;
-		black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_LO_VAL;
+	if (want_color) {
+		#if SAMPLES_PER_CLOCK==2
+		for (int i=0; i<10; i++) {
+			black_line[COLOR_BURST_START+i*2] = COLOR_BURST_HI_VAL;
+			black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_LO_VAL;
+		}
+		#else
+		for (int i=0; i<10; i++) {
+			black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
+			black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_HI_VAL;
+			black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+			black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_LO_VAL;
+		}
 	}
-	#else
-	for (int i=0; i<10; i++) {
-		black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
-		black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_HI_VAL;
-		black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-		black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_LO_VAL;
-	}	
 	#endif
 	
 
@@ -163,18 +202,20 @@ void make_black_line() {
 	// Need to alternate phase for line 2
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
-	#if SAMPLES_PER_CLOCK==2
-	for (int i=0; i<10; i++) {
-		black_line[COLOR_BURST_START+i*2] = COLOR_BURST_LO_VAL;
-		black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_HI_VAL;
+	if (want_color) {
+		#if SAMPLES_PER_CLOCK==2
+		for (int i=0; i<10; i++) {
+			black_line[COLOR_BURST_START+i*2] = COLOR_BURST_LO_VAL;
+			black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_HI_VAL;
+		}
+		#else
+		for (int i=0; i<10; i++) {
+			black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
+			black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_LO_VAL;
+			black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+			black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_HI_VAL;
+		}
 	}
-	#else
-	for (int i=0; i<10; i++) {
-		black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
-		black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_LO_VAL;
-		black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-		black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_HI_VAL;
-	}	
 	#endif
 	#endif
 	
@@ -281,16 +322,10 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
     irq_set_exclusive_handler(DMA_IRQ_0, cvideo_dma_handler);
     irq_set_enabled(DMA_IRQ_0, true);
 
-	
-	// Set the clock divisor.
-#ifdef USE_FIXED_OVERCLOCK
-	// No longer works, need to calculate new #s
-	pio->sm[sm].clkdiv = (2 << 16 + 0);
-#else
-	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (3579545.0*SAMPLES_PER_CLOCK);
+	// Set the clock divisor
+		
+	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (NTSC_COLORBURST_FREQ*SAMPLES_PER_CLOCK);
 	pio->sm[sm].clkdiv = (uint32_t) (PIO_clkdiv * (1 << 16)); // INT portion: 0xffff0000, FRAC portion: 0x0000ff00	
-#endif
-
 
 	// Start the state machine
     pio_sm_set_enabled(pio, sm, true);
