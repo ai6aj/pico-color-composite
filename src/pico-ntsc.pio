@@ -9,7 +9,7 @@
 
 .program ntsc_composite
 .wrap_target
-	out pins, 8 [10]
+	out pins, 8
 ;	mov pins, X [8]
 ;	nop
 .wrap

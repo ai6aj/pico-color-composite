@@ -39,47 +39,22 @@
 #warning blink example requires a board with a regular LED
 #endif
 
-#define USE_OVERCLOCK	0
+// No longer works due to change in PIO routine
+// Need to calculate new #s	
+// #define USE_FIXED_OVERCLOCK	0
 
 const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
-/*
-	Some NTSC timing information in terms of color clocks:
-	
-	1 full line = ~63.5uS = 227.50 clocks
-	Front porch = ~1.5uS = 5.37 clocks, round to 5
-	Sync tip = ~4.7uS = 16.82 clocks, round to 17
-	Breezeway = 0.6uS = 2.14 clocks, round to 2
-	Color burst = exactly 9 clocks per spec
-	Back porch = ~1.6uS = 5.7 clocks, round to 6
-	Total HSYNC = 39 clocks = (5+17+2+9+6)
-	
-	Video information: 52.6uS, 224 color clocks
-	
-	Total line size: 263 clocks
-	
-	VBlank = 21 lines at 0.3V (front porch level) ?
-	
-	See:
-    http://www.ifp.illinois.edu/~yuhuang/ntscdecoding.htm
-	https://www.technicalaudio.com/pdf/Grass_Valley/Grass_Valley_NTSC_Studio_Timing.pdf
-*/
 void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins);
 
 int irq_count = 0;
 
 void video_core();
 
+#define SYS_CLOCK_KHZ	266000
+
 int main() {
-#ifdef USE_OVERCLOCK
-	// Rock solid signal
-	set_sys_clock_pll(1260000000,4,2);
-#else
-	// A more typical frequency, but 
-	// shows a fair amount of jitter
-	// on the scope
-	set_sys_clock_khz(2500000,true);
-#endif
+	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
 
     stdio_init_all();
 
@@ -107,14 +82,9 @@ void video_core() {
 
 uint dma_channel;
 
-// Note that you can probably improve color rendition
-// By making each line 227.5 clocks.  Since we output
-// at 2x resolution this is feasible.
-
-
 // #define ALTERNATE_COLORBURST_PHASE
 
-#define SAMPLES_PER_CLOCK	2
+#define SAMPLES_PER_CLOCK	4
 
 #ifdef ALTERNATE_COLORBURST_PHASE
 #define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
@@ -129,7 +99,6 @@ uint dma_channel;
 #define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
 #define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
 #define SYNC_VAL			MIN_DAC_OUT
-#define SYNC_TIP_CLOCKS 	33
 
 
 uint8_t vblank_line[LINE_WIDTH+1];
@@ -147,25 +116,44 @@ uint8_t pingpong_lines[2][LINE_WIDTH];
 void make_vsync_line() {
 	int ofs = 0;
 	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
-	memset(vblank_line,SYNC_VAL,210*2);
+	memset(vblank_line,SYNC_VAL,210*SAMPLES_PER_CLOCK);
 }
+
+#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
+#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
+#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+#define VIDEO_START			COLOR_BURST_START+SAMPLES_PER_CLOCK*30
+#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
 
 void make_black_line() {
 	// Set everything to the blanking level
 	memset(black_line,BLANKING_VAL,LINE_WIDTH);
 	
 	// Do the HSYNC pulse.  The front porch has been drawn
-	// by the previous DMA transfer.
-	// 4.7uS = 33.6477 clocks,  
+	// by the previous DMA transfer, now provide 4.7uS
+	// of SYNC pulse
 	memset(black_line,SYNC_VAL,SYNC_TIP_CLOCKS);
 	
 	// Do our colorburst
 	
 	// Starts at 5.3uS = 37.94318 clocks
+
+	#if SAMPLES_PER_CLOCK==2
 	for (int i=0; i<10; i++) {
-		black_line[38+i*2] = COLOR_BURST_HI_VAL;
-		black_line[39+i*2] = COLOR_BURST_LO_VAL;
+		black_line[COLOR_BURST_START+i*2] = COLOR_BURST_HI_VAL;
+		black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_LO_VAL;
 	}
+	#else
+	for (int i=0; i<10; i++) {
+		black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
+		black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_HI_VAL;
+		black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+		black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_LO_VAL;
+	}	
+	#endif
+	
 
 	memcpy(black_line_2,black_line,LINE_WIDTH);
 
@@ -175,17 +163,28 @@ void make_black_line() {
 	// Need to alternate phase for line 2
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
+	#if SAMPLES_PER_CLOCK==2
 	for (int i=0; i<10; i++) {
-		black_line[38+i*2] = COLOR_BURST_LO_VAL;
-		black_line[39+i*2] = COLOR_BURST_HI_VAL;
+		black_line[COLOR_BURST_START+i*2] = COLOR_BURST_LO_VAL;
+		black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_HI_VAL;
 	}
+	#else
+	for (int i=0; i<10; i++) {
+		black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
+		black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_LO_VAL;
+		black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+		black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_HI_VAL;
+	}	
+	#endif
 	#endif
 	
 	// Video officially begins at 9.4uS / 67.2954 clocks
 	// Start at 68 to be in phase with clock signal	
 }
 
-void make_video_line() {
+uint8_t* video_lines[240];
+
+static void __not_in_flash_func(make_video_line)(uint line) {
 	memcpy(pingpong_lines[0],black_line,LINE_WIDTH);
 	memcpy(pingpong_lines[1],black_line_2,LINE_WIDTH);
 
@@ -199,24 +198,22 @@ void make_video_line() {
 		
 	int ph = 14;
 
-/*
-	for (int i=1; i<189; i+=2) {
-			pingpong_lines[0][66+i] = 31;
-			pingpong_lines[0][67+i] = 21;
-			pingpong_lines[1][66+i] = 31;
-			pingpong_lines[1][67+i] = 21;
+	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
+
+//	memset(nextline[VIDEO_STAR
+	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
+			nextline[i+0] = 15-(line & 0xF);
+			nextline[i+1] = 15+(line & 0xF);
+			nextline[i+2] = 15+(line & 0xF);
+			nextline[i+3] = 15-(line & 0xF);
+
+
+/*			pingpong_lines[1][i] = pingpong_lines[0][i+1];
+			pingpong_lines[1][i+1] = pingpong_lines[0][i+1];
+			pingpong_lines[1][i+2] = pingpong_lines[0][i+1];
+			pingpong_lines[1][i+3] = pingpong_lines[0][i+1]; */
+
 	}	
-	
-	for (int i=188; i<188+191; i++) {
-		if (i & 1) {
-			pingpong_lines[0][67+i] = 31;
-			pingpong_lines[1][67+i] = 11;
-		}
-		else {
-			pingpong_lines[0][67+i] = 11;	
-			pingpong_lines[1][67+i] = 31;
-		}
-	} */
 	
 }
 
@@ -233,32 +230,23 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	}
 	else {
 	    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
-		line++;
+		make_video_line(++line);
 	}
 
-/*	
-	irq_count++;
-	if (irq_count > 1000) {
-		irq_count = 0;
-		if (led_on) {
-			gpio_put(LED_PIN, 0);	
-			led_on = 0;
-		} else {
-			gpio_put(LED_PIN, 1);	
-			led_on = 1;	
-		}
-	}
-*/
 	// Need to reset the interrupt	
     dma_hw->ints0 = 1u << dma_channel;		
 }
 
+void init_video_lines() {
+	// Initialize video_line to alternating 1s and 2s
+	make_vsync_line();
+	make_black_line();
+	make_video_line(1);
+}
+
 void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 
-	// Initialize video_line to alternating 1s and 2s
-	make_black_line();
-	make_video_line();
-	make_vsync_line();
+	init_video_lines();
 			
 	// Initialize the PIO program
     ntsc_composite_program_init(pio, sm, offset, pin, num_pins);
@@ -295,13 +283,11 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 
 	
 	// Set the clock divisor.
-#ifdef USE_OVERCLOCK
+#ifdef USE_FIXED_OVERCLOCK
+	// No longer works, need to calculate new #s
 	pio->sm[sm].clkdiv = (2 << 16 + 0);
 #else
-	// pio->sm[sm].clkdiv = ((17 << 16) + (118 << 8));
-
-	float PIO_clkdiv = 250000000.0 / (3579545.0*2);
-
+	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (3579545.0*SAMPLES_PER_CLOCK);
 	pio->sm[sm].clkdiv = (uint32_t) (PIO_clkdiv * (1 << 16)); // INT portion: 0xffff0000, FRAC portion: 0x0000ff00	
 #endif
 
