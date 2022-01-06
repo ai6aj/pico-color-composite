@@ -260,13 +260,38 @@ static void __not_in_flash_func(make_video_line)(uint line) {
 
 
 int line = 0;
+int frame = 0;
 
+// Interlacing barely functions right now.
+// Need to check the spec.  May be sending the
+// wrong length HSYNC, or sending it on the wrong line,
+// or the line count may be wrong.
+//
+// While not strictly necessary, it's a nice touch.
+//
+// #define DO_INTERLACE
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
-	if (line == 262) {
+	
+	// This probably needs to change one per frame if DO_INTERLACE
+	// is set
+	if (line == 262 + ((frame & 1) ? 0 : 1)) {
 	    dma_channel_set_read_addr(dma_channel, vblank_line, true);
 		line = 0;
-	} else if (line<20) {
-	    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
+		frame++;
+		if (frame == 60) frame = 0;
+	} 	
+	
+	#ifdef DO_INTERLACE
+	else if (line == 1 && !(frame & 1)) {
+		// Currently confuses the TV
+	    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], false);				
+		dma_channel_set_trans_count(dma_channel, LINE_WIDTH/2, true); 
+		line++;
+	}
+	#endif
+	else if (line<20) {
+	    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], false);
+		dma_channel_set_trans_count(dma_channel, LINE_WIDTH, true);
 		line++;	
 	}
 	else {
