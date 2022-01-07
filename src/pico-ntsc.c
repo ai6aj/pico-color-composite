@@ -144,6 +144,7 @@ uint dma_channel;
 	
 */
 uint8_t vblank_line[LINE_WIDTH+1];
+uint8_t vblank_odd_line[LINE_WIDTH+1];
 uint8_t black_line[LINE_WIDTH+1];
 uint8_t black_line_2[LINE_WIDTH];
 
@@ -159,7 +160,11 @@ int want_color=1;
 void make_vsync_line() {
 	int ofs = 0;
 	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
-	memset(vblank_line,SYNC_VAL,210*SAMPLES_PER_CLOCK);
+	memset(vblank_line,SYNC_VAL,105*SAMPLES_PER_CLOCK);
+	
+	memset(vblank_odd_line,BLANKING_VAL,LINE_WIDTH);
+	memset(vblank_odd_line,SYNC_VAL,SYNC_TIP_CLOCKS);
+	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,105*SAMPLES_PER_CLOCK);
 }
 
 
@@ -225,6 +230,8 @@ void make_black_line() {
 
 uint8_t* video_lines[240];
 
+int even_frame = 1; 	// 0 = odd, 1 = even
+
 static void __not_in_flash_func(make_video_line)(uint line) {
 	memcpy(pingpong_lines[0],black_line,LINE_WIDTH);
 	memcpy(pingpong_lines[1],black_line_2,LINE_WIDTH);
@@ -242,19 +249,22 @@ static void __not_in_flash_func(make_video_line)(uint line) {
 	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
 
 //	memset(nextline[VIDEO_STAR
+
+	if (even_frame) {
+		for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
+				nextline[i+0] = 15-(line & 0xF);
+				nextline[i+1] = 15+(line & 0xF);
+				nextline[i+2] = 15+(line & 0xF);
+				nextline[i+3] = 15-(line & 0xF);
+		}	
+	} else {
 	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
-			nextline[i+0] = 15-(line & 0xF);
-			nextline[i+1] = 15+(line & 0xF);
-			nextline[i+2] = 15+(line & 0xF);
-			nextline[i+3] = 15-(line & 0xF);
-
-
-/*			pingpong_lines[1][i] = pingpong_lines[0][i+1];
-			pingpong_lines[1][i+1] = pingpong_lines[0][i+1];
-			pingpong_lines[1][i+2] = pingpong_lines[0][i+1];
-			pingpong_lines[1][i+3] = pingpong_lines[0][i+1]; */
-
-	}	
+				nextline[i+0] = 15;
+				nextline[i+1] = 15;
+				nextline[i+2] = 15;
+				nextline[i+3] = 15;
+		}
+	}
 	
 }
 
@@ -270,38 +280,38 @@ int frame = 0;
 // While not strictly necessary, it's a nice touch.
 //
 // #define DO_INTERLACE
-static void __not_in_flash_func(cvideo_dma_handler)(void) {
-	
-	// This probably needs to change one per frame if DO_INTERLACE
-	// is set
-	if (line == 262 + ((frame & 1) ? 0 : 1)) {
-	    dma_channel_set_read_addr(dma_channel, vblank_line, true);
-		line = 0;
-		frame++;
-		if (frame == 60) frame = 0;
-	} 	
-	
-	#ifdef DO_INTERLACE
-	else if (line == 1 && !(frame & 1)) {
-		// Currently confuses the TV
-	    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], false);				
-		dma_channel_set_trans_count(dma_channel, LINE_WIDTH/2, true); 
-		line++;
-	}
-	#endif
-	else if (line<20) {
-	    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], false);
-		dma_channel_set_trans_count(dma_channel, LINE_WIDTH, true);
-		line++;	
-	}
-	else {
-	    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
-		make_video_line(++line);
-	}
 
+int do_interlace = 1;
+
+static void __not_in_flash_func(cvideo_dma_handler)(void) {
+
+	if (line >= 262) {
+		if (even_frame) {
+		    dma_channel_set_read_addr(dma_channel, vblank_line, true);
+			line = 0;
+			frame++;
+			if (do_interlace) even_frame = 0;
+		}
+		else {
+		    dma_channel_set_read_addr(dma_channel, vblank_odd_line, true);
+			line = 0;
+			frame++;
+			even_frame = 1;
+		} 
+	} else if (line < 20) {
+			dma_channel_set_trans_count(dma_channel, LINE_WIDTH, false);
+		    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
+			line++;	
+	} else {
+		    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
+			make_video_line(++line);
+	}
+			
 	// Need to reset the interrupt	
     dma_hw->ints0 = 1u << dma_channel;		
 }
+
+
 
 void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
