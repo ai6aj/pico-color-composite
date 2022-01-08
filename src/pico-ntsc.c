@@ -51,7 +51,7 @@ int irq_count = 0;
 
 void video_core();
 
-#define SYS_CLOCK_KHZ	133000
+#define SYS_CLOCK_KHZ	150000
 
 /**********************************
  FRAMEBUFFER STUFF
@@ -59,6 +59,21 @@ void video_core();
 uint8_t palette[256][4];
 uint8_t framebuffer[200][160];
 
+
+void drawline (int x0, int y0, int x1, int y1, uint8_t color)
+{
+  int dx =  abs (x1 - x0), sx = x0 < x1 ? 1 : -1;
+  int dy = -abs (y1 - y0), sy = y0 < y1 ? 1 : -1; 
+  int err = dx + dy, e2; /* error value e_xy */
+ 
+  for (;;){  /* loop */
+	framebuffer[y0][x0] = color; // putpixel(x,y,7);
+    if (x0 == x1 && y0 == y1) break;
+    e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; } /* e_xy+e_x > 0 */
+    if (e2 <= dx) { err += dx; y0 += sy; } /* e_xy+e_y < 0 */
+  }
+}
 
 
 
@@ -80,10 +95,10 @@ int main() {
 	palette[1][2] = 31;
 	palette[1][3] = 31;
 
-	palette[2][0] = 10;
-	palette[2][1] = 31;
-	palette[2][2] = 31;
-	palette[2][3] = 10;
+	palette[2][0] = 25;
+	palette[2][1] = 25;
+	palette[2][2] = 15;
+	palette[2][3] = 5;
 
 	
 	for (int i=0; i<200; i++) {
@@ -93,9 +108,19 @@ int main() {
 	memset(&framebuffer[100][0],2,160);
 
 
+	for (int i=0; i<160; i+=2) {
+		drawline(0,199,i,0,2);
+	}
+
+	uint8_t tmp;
 	while(1) {
 		printf("Hello, world.\n");
 		sleep_ms(500);
+		tmp = palette[2][0];
+		palette[2][0] = palette[2][1];
+		palette[2][1] = palette[2][2];
+		palette[2][2] = palette[2][3];
+		palette[2][3] = tmp;
 	}
 }
 
@@ -149,7 +174,7 @@ uint dma_channel;
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_START			COLOR_BURST_START+SAMPLES_PER_CLOCK*30
+#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*30-2)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 
