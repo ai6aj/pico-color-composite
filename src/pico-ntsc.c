@@ -1,4 +1,28 @@
 /**
+
+	TODO:
+		Switch palette model from direct DAC values to
+		H (as phase) / S (as color signal intensity) / L (as avg value)
+		triplets.
+		
+		Output signal is a combination of H/S + L.  H/S signal should
+		probably lead by 1/2 color clock i.e.
+		
+		Pixel -1:
+		Subsamples a,b = black
+		Subsamples c,d = black + HS signal of pixel 0
+		
+		Pixel 0:
+		Subsamples a,b = luma[0] + HS signal of pixel 0
+		Subsamples c,d = luma[0] + HS signal of pixel 1
+
+		Pixel 1:
+		Subsamples a,b = luma[1] + HS signal of pixel 1
+		Subsamples c,d = luma[1] + HS signal of pixel 2
+		
+		..etc
+		
+		
 	
 	For B&W mode -
 		Just disable colorburst.
@@ -356,38 +380,26 @@ static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
 			dest[ofs+3] = colorptr[3];
 			ofs += 4;
 		}
-
-/*
-	Test pattern
-	
-	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
-
-//	memset(nextline[VIDEO_STAR
-
-	if (even_frame) {
-		for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
-				nextline[i+0] = 15-(line & 0xF);
-				nextline[i+1] = 15+(line & 0xF);
-				nextline[i+2] = 15+(line & 0xF);
-				nextline[i+3] = 15-(line & 0xF);
-		}	
-	} else {
-	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
-				nextline[i+0] = 15;
-				nextline[i+1] = 15;
-				nextline[i+2] = 15;
-				nextline[i+3] = 15;
-		}
-	}
-*/	
 }
+
+
+// If true, will generate an interlaced TV signal
+// Currently jitters a lot possibly due to a bug in
+// odd/even field ordering
+int do_interlace = 0;
+
+// Enables colorburst if true, set to 0 to get
+// 640+ horizontal B&W pixels on some TVs!
+int do_color = 1;
+
+int start_video_line = 35;
+int end_video_line = 234;
 
 
 int line = 0;
 int frame = 0;
-int do_interlace = 0;
-int start_video_line = 35;
-int end_video_line = 234;
+
+
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 	if (line >= 262) {
@@ -422,10 +434,10 @@ void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
 	make_vsync_line();
 	
-	make_normal_line(black_lines[0],1,0);
-	make_normal_line(black_lines[1],1,0);
-	make_normal_line(pingpong_lines[0],1,0);
-	make_normal_line(pingpong_lines[1],1,0);
+	make_normal_line(black_lines[0],do_color,0);
+	make_normal_line(black_lines[1],do_color,0);
+	make_normal_line(pingpong_lines[0],do_color,0);
+	make_normal_line(pingpong_lines[1],do_color,0);
 
 	pingpong_lines[0][800] = 31;
 	pingpong_lines[0][801] = 31;
