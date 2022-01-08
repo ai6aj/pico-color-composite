@@ -51,7 +51,16 @@ int irq_count = 0;
 
 void video_core();
 
-#define SYS_CLOCK_KHZ	266000
+#define SYS_CLOCK_KHZ	133000
+
+/**********************************
+ FRAMEBUFFER STUFF
+ **********************************/
+uint8_t palette[256][4];
+uint8_t framebuffer[200][160];
+
+
+
 
 int main() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
@@ -60,11 +69,40 @@ int main() {
 
 	multicore_launch_core1(video_core);
 
+
+	palette[0][0] = 15;
+	palette[0][1] = 15;
+	palette[0][2] = 15;
+	palette[0][3] = 15;
+	
+	palette[1][0] = 31;
+	palette[1][1] = 31;
+	palette[1][2] = 31;
+	palette[1][3] = 31;
+
+	palette[2][0] = 10;
+	palette[2][1] = 31;
+	palette[2][2] = 31;
+	palette[2][3] = 10;
+
+	
+	for (int i=0; i<200; i++) {
+//		memset(&framebuffer[i][0],0,160);
+	}
+	
+	memset(&framebuffer[100][0],2,160);
+
+
 	while(1) {
 		printf("Hello, world.\n");
 		sleep_ms(500);
 	}
 }
+
+
+/* --------------------------------
+ SIGNAL GENERATOR
+   -------------------------------- */
 
 void video_core() {
     PIO pio = pio0;
@@ -149,6 +187,7 @@ uint8_t black_line[LINE_WIDTH+1];
 uint8_t black_line_2[LINE_WIDTH];
 
 uint8_t* black_lines[2] = {black_line,black_line_2 };
+
 uint8_t pingpong_lines[2][LINE_WIDTH];
 
 //uint8_t video_line[LINE_WIDTH+1];
@@ -228,24 +267,74 @@ void make_black_line() {
 	// Start at 68 to be in phase with clock signal	
 }
 
+/**
+	Fill a linebuffer with skeleton HSYNC, colorburst, and black signals.
+	
+	do_colorburst			If true, insert the colorburst
+	use_alternate_phase		If true, invert the colorburst phase 180 degrees
+	
+**/
+void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase) {
+	// Set everything to the blanking level
+	memset(dest,BLANKING_VAL,LINE_WIDTH);
+	
+	// Do the HSYNC pulse.  The front porch has been drawn
+	// by the previous DMA transfer, now provide 4.7uS
+	// of SYNC pulse
+	memset(dest,SYNC_VAL,SYNC_TIP_CLOCKS);
+	
+	// Fill in colorburst signal if desired
+	if (do_colorburst) {
+		uint8_t c1 = COLOR_BURST_HI_VAL;
+		uint8_t c2 = COLOR_BURST_LO_VAL;
+		
+		if (use_alternate_phase) {
+			uint8_t tmp;
+			tmp = c1; c1 = c2; c2 = tmp;
+		}
+			
+		
+		#if SAMPLES_PER_CLOCK==2
+		for (int i=0; i<10; i++) {
+			dest[COLOR_BURST_START+i*2] = c1;
+			dest[COLOR_BURST_START+1+i*2] = c2;
+		}
+		#else
+		for (int i=0; i<10; i++) {
+			dest[COLOR_BURST_START+i*4] = BLANKING_VAL;
+			dest[COLOR_BURST_START+1+i*4] = c1;
+			dest[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+			dest[COLOR_BURST_START+3+i*4] = c2;
+		}
+	}
+	#endif
+}
+
+
 uint8_t* video_lines[240];
 
 int even_frame = 1; 	// 0 = odd, 1 = even
 
-static void __not_in_flash_func(make_video_line)(uint line) {
-	memcpy(pingpong_lines[0],black_line,LINE_WIDTH);
-	memcpy(pingpong_lines[1],black_line_2,LINE_WIDTH);
-
-//	int phase[16] = { 0,4,7,9,10,9,7,4,0,-4,-7,-9,-10,-9,-7,-4 };
-
-	int phase[16] = { 0,1,2,3,
-		3,3,2,1,
-		0,-1,-2,-3,
-		-3,-3,-2,-1};
-
+static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
+	
+	//	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
+		uint8_t* sourceline = framebuffer[line];
+		uint8_t* colorptr;
+		int ofs = VIDEO_START;
+		for (int i=0; i<160; i++) {
+			colorptr = palette[sourceline[i]];
 		
-	int ph = 14;
+			// The compiler will optimize this		
+			dest[ofs] = colorptr[0];
+			dest[ofs+1] = colorptr[1];
+			dest[ofs+2] = colorptr[2];
+			dest[ofs+3] = colorptr[3];
+			ofs += 4;
+		}
 
+/*
+	Test pattern
+	
 	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
 
 //	memset(nextline[VIDEO_STAR
@@ -265,24 +354,15 @@ static void __not_in_flash_func(make_video_line)(uint line) {
 				nextline[i+3] = 15;
 		}
 	}
-	
+*/	
 }
 
 
 int line = 0;
 int frame = 0;
-
-// Interlacing barely functions right now.
-// Need to check the spec.  May be sending the
-// wrong length HSYNC, or sending it on the wrong line,
-// or the line count may be wrong.
-//
-// While not strictly necessary, it's a nice touch.
-//
-// #define DO_INTERLACE
-
-int do_interlace = 1;
-
+int do_interlace = 0;
+int start_video_line = 35;
+int end_video_line = 234;
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 	if (line >= 262) {
@@ -298,26 +378,42 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 			frame++;
 			even_frame = 1;
 		} 
-	} else if (line < 20) {
-			dma_channel_set_trans_count(dma_channel, LINE_WIDTH, false);
+	} else if (line < start_video_line || line > end_video_line) {
+			// dma_channel_set_trans_count(dma_channel, LINE_WIDTH, false);
 		    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
 			line++;	
 	} else {
 		    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
-			make_video_line(++line);
+			make_video_line(line-35,pingpong_lines[(line & 1) ^ 1]);
+			line++;
 	}
 			
 	// Need to reset the interrupt	
-    dma_hw->ints0 = 1u << dma_channel;		
+    dma_hw->ints0 = 1 << dma_channel;		
 }
-
 
 
 void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
 	make_vsync_line();
-	make_black_line();
-	make_video_line(1);
+	
+	make_normal_line(black_lines[0],1,0);
+	make_normal_line(black_lines[1],1,0);
+	make_normal_line(pingpong_lines[0],1,0);
+	make_normal_line(pingpong_lines[1],1,0);
+
+	pingpong_lines[0][800] = 31;
+	pingpong_lines[0][801] = 31;
+	pingpong_lines[1][800] = 31;
+	pingpong_lines[1][801] = 31;
+
+	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
+				pingpong_lines[0][i+0] = 15;
+				pingpong_lines[0][i+1] = 15;
+				pingpong_lines[0][i+2] = 15;
+				pingpong_lines[0][i+3] = 15;
+	}
+
 }
 
 void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
@@ -365,3 +461,4 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	// Start the state machine
     pio_sm_set_enabled(pio, sm, true);
 }
+	
