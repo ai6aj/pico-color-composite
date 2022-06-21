@@ -75,7 +75,8 @@ int irq_count = 0;
 
 void video_core();
 
-#define SYS_CLOCK_KHZ	150000
+// #define SYS_CLOCK_KHZ	150000
+#define SYS_CLOCK_KHZ	157500
 
 /**********************************
  FRAMEBUFFER STUFF
@@ -99,7 +100,7 @@ void drawline (int x0, int y0, int x1, int y1, uint8_t color)
   }
 }
 
-
+volatile int in_vblank = 0;
 
 int main() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
@@ -138,8 +139,9 @@ int main() {
 
 	uint8_t tmp;
 	while(1) {
-		printf("Hello, world.\n");
+//		printf("Hello, world.\n");
 		sleep_ms(500);
+		while (!in_vblank);
 		tmp = palette[2][0];
 		palette[2][0] = palette[2][1];
 		palette[2][1] = palette[2][2];
@@ -403,6 +405,7 @@ int frame = 0;
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 	if (line >= 262) {
+		in_vblank = 1;
 		if (even_frame) {
 		    dma_channel_set_read_addr(dma_channel, vblank_line, true);
 			line = 0;
@@ -420,6 +423,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 		    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
 			line++;	
 	} else {
+			in_vblank = 0;
 		    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
 			make_video_line(line-35,pingpong_lines[(line & 1) ^ 1]);
 			line++;
@@ -493,8 +497,16 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	// Set the clock divisor
 		
 	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (NTSC_COLORBURST_FREQ*SAMPLES_PER_CLOCK);
-	pio->sm[sm].clkdiv = (uint32_t) (PIO_clkdiv * (1 << 16)); // INT portion: 0xffff0000, FRAC portion: 0x0000ff00	
+	
+	uint16_t div_int = (uint16_t)PIO_clkdiv;
+	uint8_t div_frac = 0;
+     if (div_int != 0) {
+         div_frac = (uint8_t)((PIO_clkdiv - (float)div_int) * (1u << 8u));
+     }
+//	pio->sm[sm].clkdiv = (uint32_t) (PIO_clkdiv * (1 << 16)); // INT portion: 0xffff0000, FRAC portion: 0x0000ff00	
 
+	pio->sm[sm].clkdiv = (((uint)div_frac) << PIO_SM0_CLKDIV_FRAC_LSB) |
+             (((uint)div_int) << PIO_SM0_CLKDIV_INT_LSB);
 	// Start the state machine
     pio_sm_set_enabled(pio, sm, true);
 }
