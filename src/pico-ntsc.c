@@ -43,6 +43,7 @@
 		
 
  */
+#define USE_DISPLAY_LIST 1
 
 #include <stdlib.h>
 #include "pico/stdlib.h"
@@ -247,7 +248,10 @@ uint8_t black_line_2[LINE_WIDTH];
 
 uint8_t* black_lines[2] = {black_line,black_line_2 };
 
-uint8_t pingpong_lines[2][LINE_WIDTH];
+uint8_t __scratch_y("pingpong_group") pingpong_line_0[LINE_WIDTH];
+uint8_t __scratch_y("pingpong_group") pingpong_line_1[LINE_WIDTH];
+ 
+uint8_t* __scratch_y("pingpong_group") pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 //uint8_t video_line[LINE_WIDTH+1];
 //uint8_t video_line2[LINE_WIDTH+1];
@@ -393,93 +397,55 @@ int end_video_line = 234;
 
 int line = 0;
 int frame = 0;
-
+uint8_t*	next_dma_line = vblank_line;
 
 /* --------------------------------------------------------------------------------------------------------------
  	Generate video using a display list.  
    --------------------------------------------------------------------------------------------------------------
 */
-#ifdef USE_DISPLAY_LIST
 
 #define DISPLAY_LIST_BLACK_LINE		0
 #define DISPLAY_LIST_FRAMEBUFFER	1
 #define DISPLAY_LIST_WVB			2
+#define DISPLAY_LIST_USER_RENDER	3	// Will stub out to USER_RENDER with the next display line
 
-uint8_t sample_display_list[] = { DISPLAY_LIST_BLACK_LINE,30,
-								DISPLAY_LIST_FRAMEBUFFER,200,
-								DISPLAY_LIST_WVB,0 };
+// Basic display list for a 200 line display.
+typedef unsigned int display_list_t;
+display_list_t sample_display_list[] = { DISPLAY_LIST_BLACK_LINE, 35,
+						      DISPLAY_LIST_FRAMEBUFFER, 200,
+							  DISPLAY_LIST_WVB,0 };
 
-uint8_t* display_list_ptr = sample_display_list;
+display_list_t* display_list_ptr = sample_display_list;
 
-uint8_t  display_list_current_cmd = 0;
-int display_list_lines_remaining = 0;
+display_list_t  display_list_current_cmd = 0;
+display_list_t display_list_lines_remaining = 0;
+display_list_t display_list_ofs = 0;
 
-static void __not_in_flash_func(cvideo_dma_handler)(void) {
-	if (line >= 262) {
-		in_vblank = 1;		
-		if (even_frame) {
-		    dma_channel_set_read_addr(dma_channel, vblank_line, true);
-			line = 0;
-			frame++;
-			if (do_interlace) even_frame = 0;
-		}
-		else {
-		    dma_channel_set_read_addr(dma_channel, vblank_odd_line, true);
-			line = 0;
-			frame++;
-			even_frame = 1;
-		} 
-
-		// Reset display list
-		display_list_ptr = sample_display_list;
-		display_list_ofs = 0;
-		display_list_current_cmd = 0;
-		display_list_lines_remaining = 0;
-
-	} else {
-			// If no display list command, read it
-			if (display_list_lines_remaining == 0) {
-				display_list_cmd = display_list_ptr[display_list_ofs++];
-				display_list_lines_remaining = display_list_ptr[display_list_ofs++];				
-			}
-			
-			// Do the display list command
-			switch (display_list_cmd) {
-				case DISPLAY_LIST_WVB:
-					// Prevent us from reading off the end of the display list next time
-					display_list_lines_remaining = 1;
-					// Otherwise it's a black line
-					
-				case DISPLAY_LIST_BLACK_LINE:
-					dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
-					break;
-					
-				case DISPLAY_LIST_FRAMEBUFFER:
-					// Copy framebuffer data into the next video line
-					// NOT WORKING YET!!!!!
-					in_vblank = 0;
-					dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
-					make_video_line(line-35,pingpong_lines[(line & 1) ^ 1]);					
-			}
-			
-			line++;
-	}
+void user_render(uint line, uint8_t* dest) {
+	// Line = 0 means VBLANK, don't do anything but reset your internals
+	if (!line) return;
 	
+	int ofs = VIDEO_START;
+	for (int i=0; i<160; i++) {
+		dest[ofs] = 15;
+		dest[ofs+1] = 31;
+		dest[ofs] = 15;
+		dest[ofs+1] = 15;
+		ofs += 4;
+	}
 }
 
-static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
-}
-
-#else
 /*
 
 	Generate a video line from the framebuffer
 	
 */
+int framebuffer_line_offset = 35;
+
 static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
 	
 	//	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
-		uint8_t* sourceline = framebuffer[line];
+		uint8_t* sourceline = framebuffer[line-framebuffer_line_offset];
 		uint8_t* colorptr;
 		int ofs = VIDEO_START;
 		for (int i=0; i<160; i++) {
@@ -495,36 +461,82 @@ static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
 }
 
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
+	
+	// Set the next DMA access point and reset the interrupt
+    dma_channel_set_read_addr(dma_channel, next_dma_line, true);
+    dma_hw->ints0 = 1 << dma_channel;		
+
+	// We should ALWAYS set the read address to whatever we decided it should be
+	// last time, unless we're in vblank.  Then we determine what the next DMA line is.
+	// This way we don't get an extra line(s) when switching between black lines and 
+	// framebuffer lines.
+
 
 	if (line >= 262) {
 		in_vblank = 1;
 		if (even_frame) {
-		    dma_channel_set_read_addr(dma_channel, vblank_line, true);
+		    next_dma_line = vblank_line;
 			line = 0;
 			frame++;
 			if (do_interlace) even_frame = 0;
 		}
 		else {
-		    dma_channel_set_read_addr(dma_channel, vblank_odd_line, true);
+		    next_dma_line = vblank_odd_line;
 			line = 0;
 			frame++;
 			even_frame = 1;
 		} 
-	} else if (line < start_video_line || line > end_video_line) {
-			// dma_channel_set_trans_count(dma_channel, LINE_WIDTH, false);
-		    dma_channel_set_read_addr(dma_channel, black_lines[line & 1], true);
-			line++;	
+
+		// Reset display list
+		display_list_ptr = sample_display_list;
+		display_list_ofs = 0;
+		display_list_current_cmd = 0;
+		display_list_lines_remaining = 0;
 	} else {
 			in_vblank = 0;
-		    dma_channel_set_read_addr(dma_channel, pingpong_lines[line & 1], true);
-			make_video_line(line-35,pingpong_lines[(line & 1) ^ 1]);
+			// If no display list command, read it
+			if (display_list_lines_remaining == 0) {
+				display_list_current_cmd = display_list_ptr[display_list_ofs++];
+				display_list_lines_remaining = display_list_ptr[display_list_ofs++];				
+			}
+			
+			// Do the display list command
+			switch (display_list_current_cmd) {
+				// Forge a VBLANK
+				case DISPLAY_LIST_WVB:
+					// This will force reading the DL to stall until 
+					// reset by VBLANK
+					display_list_lines_remaining = 2;
+					// Otherwise it's a black line
+					
+				case DISPLAY_LIST_BLACK_LINE:
+					next_dma_line = black_lines[line & 1];
+					break;
+					
+				case DISPLAY_LIST_FRAMEBUFFER:
+				    //next_dma_line = black_lines[line & 1];
+					next_dma_line = pingpong_lines[line & 1];
+			
+					// Now for the fun, we need to rasterize the next DMA line before 
+					// the current line completes
+					make_video_line(line,pingpong_lines[line & 1]);
+//					next_dma_line = vblank_line;
+					break;
+					
+				case DISPLAY_LIST_USER_RENDER:
+					next_dma_line = pingpong_lines[line & 1];
+					user_render(line,pingpong_lines[line & 1]);
+					break;
+			}
+			
+			if (display_list_lines_remaining) { display_list_lines_remaining--; }
 			line++;
 	}
-			
-	// Need to reset the interrupt	
-    dma_hw->ints0 = 1 << dma_channel;		
+	
 }
-#endif
+
+
+
 
 void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
