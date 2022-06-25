@@ -21,7 +21,7 @@ void ntsc_composite_program_init(PIO pio, uint sm, uint offset, uint first_pin,
 									uint pin_count) {
    // Set up pins to work with PIO
    for (int i=0; i<pin_count; i++) {
-	gpio_set_drive_strength(i,GPIO_DRIVE_STRENGTH_12MA);
+	gpio_set_drive_strength(i,GPIO_DRIVE_STRENGTH_2MA);
    	pio_gpio_init(pio,first_pin+i);
    }
    

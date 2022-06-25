@@ -113,13 +113,13 @@ int main() {
 
 	palette[0][0] = 15;
 	palette[0][1] = 15;
-	palette[0][2] = 15;
-	palette[0][3] = 15;
+	palette[0][2] = 31;
+	palette[0][3] = 31;
 	
-	palette[1][0] = 31;
-	palette[1][1] = 31;
-	palette[1][2] = 31;
-	palette[1][3] = 31;
+	palette[1][0] = 15;
+	palette[1][1] = 15;
+	palette[1][2] = 5;
+	palette[1][3] = 5;
 
 	palette[2][0] = 25;
 	palette[2][1] = 25;
@@ -173,7 +173,7 @@ void video_core() {
 	gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
 	
-    start_video(pio, 0, offset, 16, 5);
+    start_video(pio, 0, offset, 8, 5);
 	
 	while (1);
 }
@@ -181,7 +181,7 @@ void video_core() {
 uint dma_channel;
 
 #define SAMPLES_PER_CLOCK	4
-#define	DAC_BITS	5
+#define	DAC_BITS	6
 
 
 /* 
@@ -269,7 +269,43 @@ void make_vsync_line() {
 	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,105*SAMPLES_PER_CLOCK);
 }
 
-
+void make_color_burst(uint8_t* line, int use_alternate_phase) {
+	uint8_t c1 = COLOR_BURST_HI_VAL;
+	uint8_t c2 = COLOR_BURST_LO_VAL;
+		
+	if (use_alternate_phase) {
+		uint8_t tmp;
+		tmp = c1; c1 = c2; c2 = tmp;
+	}
+				
+	if (SAMPLES_PER_CLOCK==2) {
+		for (int i=0; i<10; i++) {
+			line[COLOR_BURST_START+i*2] = c1;
+			line[COLOR_BURST_START+1+i*2] = c2;
+		}
+	}
+	else if (SAMPLES_PER_CLOCK==4) {
+		for (int i=0; i<10; i++) {
+			line[COLOR_BURST_START+i*4] = BLANKING_VAL;
+			line[COLOR_BURST_START+1+i*4] = c1;
+			line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
+			line[COLOR_BURST_START+3+i*4] = c2;
+		}
+	}
+	else {
+		for (int i=0; i<10; i++) {
+			line[COLOR_BURST_START+i*8] = BLANKING_VAL;
+			line[COLOR_BURST_START+1+i*8] = c1;
+			line[COLOR_BURST_START+2+i*8] = c1;
+			line[COLOR_BURST_START+3+i*8] = BLANKING_VAL;
+			line[COLOR_BURST_START+4+i*8] = BLANKING_VAL;
+			line[COLOR_BURST_START+5+i*8] = c2;
+			line[COLOR_BURST_START+6+i*8] = c2;
+			line[COLOR_BURST_START+7+i*8] = BLANKING_VAL;
+		}
+	}	
+	
+}
 
 void make_black_line() {
 	// Set everything to the blanking level
@@ -284,46 +320,23 @@ void make_black_line() {
 	
 	// Starts at 5.3uS = 37.94318 clocks
 
-	if (want_color) {
-		#if SAMPLES_PER_CLOCK==2
-		for (int i=0; i<10; i++) {
-			black_line[COLOR_BURST_START+i*2] = COLOR_BURST_HI_VAL;
-			black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_LO_VAL;
-		}
-		#else
-		for (int i=0; i<10; i++) {
-			black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
-			black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_HI_VAL;
-			black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-			black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_LO_VAL;
-		}
-	}
-	#endif
 	
-
 	memcpy(black_line_2,black_line,LINE_WIDTH);
 
 	// Start HSYNC here
 	black_line[LINE_WIDTH-1] = 0;
-
+	
+	if (want_color) {
+		make_color_burst(black_line,0);
+	}
+	
 	// Need to alternate phase for line 2
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
+	
 	if (want_color) {
-		#if SAMPLES_PER_CLOCK==2
-		for (int i=0; i<10; i++) {
-			black_line[COLOR_BURST_START+i*2] = COLOR_BURST_LO_VAL;
-			black_line[COLOR_BURST_START+1+i*2] = COLOR_BURST_HI_VAL;
-		}
-		#else
-		for (int i=0; i<10; i++) {
-			black_line[COLOR_BURST_START+i*4] = BLANKING_VAL;
-			black_line[COLOR_BURST_START+1+i*4] = COLOR_BURST_LO_VAL;
-			black_line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-			black_line[COLOR_BURST_START+3+i*4] = COLOR_BURST_HI_VAL;
-		}
+		make_color_burst(black_line_2,1);
 	}
-	#endif
 	#endif
 	
 	// Video officially begins at 9.4uS / 67.2954 clocks
@@ -348,29 +361,8 @@ void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase)
 	
 	// Fill in colorburst signal if desired
 	if (do_colorburst) {
-		uint8_t c1 = COLOR_BURST_HI_VAL;
-		uint8_t c2 = COLOR_BURST_LO_VAL;
-		
-		if (use_alternate_phase) {
-			uint8_t tmp;
-			tmp = c1; c1 = c2; c2 = tmp;
-		}
-			
-		
-		#if SAMPLES_PER_CLOCK==2
-		for (int i=0; i<10; i++) {
-			dest[COLOR_BURST_START+i*2] = c1;
-			dest[COLOR_BURST_START+1+i*2] = c2;
-		}
-		#else
-		for (int i=0; i<10; i++) {
-			dest[COLOR_BURST_START+i*4] = BLANKING_VAL;
-			dest[COLOR_BURST_START+1+i*4] = c1;
-			dest[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-			dest[COLOR_BURST_START+3+i*4] = c2;
-		}
+		make_color_burst(dest,use_alternate_phase);
 	}
-	#endif
 }
 
 
@@ -412,7 +404,7 @@ uint8_t*	next_dma_line = vblank_line;
 // Basic display list for a 200 line display.
 typedef unsigned int display_list_t;
 display_list_t sample_display_list[] = { DISPLAY_LIST_BLACK_LINE, 35,
-						      DISPLAY_LIST_FRAMEBUFFER, 200,
+						      DISPLAY_LIST_USER_RENDER, 200,
 							  DISPLAY_LIST_WVB,0 };
 
 display_list_t* display_list_ptr = sample_display_list;
@@ -421,18 +413,37 @@ display_list_t  display_list_current_cmd = 0;
 display_list_t display_list_lines_remaining = 0;
 display_list_t display_list_ofs = 0;
 
-void user_render(uint line, uint8_t* dest) {
-	// Line = 0 means VBLANK, don't do anything but reset your internals
-	if (!line) return;
+/*
+	User routine to generate a line
 	
-	int ofs = VIDEO_START;
-	for (int i=0; i<160; i++) {
-		dest[ofs] = 15;
-		dest[ofs+1] = 31;
-		dest[ofs] = 15;
-		dest[ofs+1] = 15;
-		ofs += 4;
-	}
+	This is how Pico-XL will simulate ANTIC.
+*/
+int framebuffer_line_offset = 35;
+
+typedef uint8_t* (*user_render_func_t)(uint);
+
+uint8_t user_line[160];
+
+static uint8_t* __not_in_flash_func(user_render_ex)(uint line) {
+	for (int i=0; i<160; i++) { user_line[i] = i & 3; } // framebuffer[line-framebuffer_line_offset][i]; };
+	return user_line;
+}
+
+static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_render_func_t user_func) {
+	//	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
+		uint8_t* sourceline = user_func(line);
+		uint8_t* colorptr;
+		int ofs = VIDEO_START;
+		for (int i=0; i<160; i++) {
+			colorptr = palette[sourceline[i]];
+		
+			// The compiler will optimize this		
+			dest[ofs] = colorptr[0];
+			dest[ofs+1] = colorptr[1];
+			dest[ofs+2] = colorptr[2];
+			dest[ofs+3] = colorptr[3];
+			ofs += 4;
+		}
 }
 
 /*
@@ -440,7 +451,6 @@ void user_render(uint line, uint8_t* dest) {
 	Generate a video line from the framebuffer
 	
 */
-int framebuffer_line_offset = 35;
 
 static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
 	
@@ -525,7 +535,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 					
 				case DISPLAY_LIST_USER_RENDER:
 					next_dma_line = pingpong_lines[line & 1];
-					user_render(line,pingpong_lines[line & 1]);
+					user_render(line,pingpong_lines[line & 1],user_render_ex);
 					break;
 			}
 			
