@@ -173,7 +173,7 @@ void video_core() {
 	gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
 	
-    start_video(pio, 0, offset, 8, 5);
+    start_video(pio, 0, offset, 6, 5);
 	
 	while (1);
 }
