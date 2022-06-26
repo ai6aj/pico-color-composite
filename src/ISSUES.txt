@@ -1,0 +1,85 @@
+/**
+
+	ISSUE:
+		Our DAC sucks.
+		
+	RESOLUTION:
+		Replace 100 ohm resistors with 100+10 ohm resistors.
+
+
+	ISSUE:
+		Using brightness levels over about 40% causes TV to
+		lock VBLANK incorrectly.
+		
+	RESOLUTION:
+		This seemed to be caused by the TV getting confused
+		if there was too much brightness in the image while
+		it tried to lock to VBLANK.  We now display a dim screen 
+		for a couple seconds at power on to give the TV time to 
+		correctly lock.	 Once that's done, full brightness 
+		can be used.
+
+
+
+	ISSUE:	
+		Something is really weird with Bit 6 / Pin 7 (dec. 64)
+		Jumping from an output value of 63 to 64 causes 
+		a DECREASE in brightness?  lol wut?
+		
+		Some things to check:
+		
+		Does Bit 7 do the same thing?  What happens if we
+		deliberately choose values that don't use bit 6
+		but do use bit 7 (i.e. hardcode all values to NOT
+		use bit 6)
+		
+		Should we just try moving the whole DAC to gpio2-10?
+
+    RESOLUTION:
+		6 bits was hardcoded into start_video, problem was
+		easily resolved by changing this to use a #define :P
+		
+
+	TODO:
+		Switch palette model from direct DAC values to
+		H (as phase) / S (as color signal intensity) / L (as avg value)
+		triplets.
+		
+		Output signal is a combination of H/S + L.  H/S signal should
+		probably lead by 1/2 color clock i.e.
+		
+		Pixel -1:
+		Subsamples a,b = black
+		Subsamples c,d = black + HS signal of pixel 0
+		
+		Pixel 0:
+		Subsamples a,b = luma[0] + HS signal of pixel 0
+		Subsamples c,d = luma[0] + HS signal of pixel 1
+
+		Pixel 1:
+		Subsamples a,b = luma[1] + HS signal of pixel 1
+		Subsamples c,d = luma[1] + HS signal of pixel 2
+		
+		..etc
+		
+		
+	
+	For B&W mode -
+		Just disable colorburst.
+		
+	For color mode -
+		We need to sum the color signal and luma signal.
+		
+		i.e. generate a 16-value sine wave 
+		Use chroma as an index into this
+		
+		Look up chroma, add luma
+		
+		Due to our limited R-ladder we only have 4 bits total
+		which will limit luma to 3 bits.  By subsampling chroma
+		signal and generating 4 bits of output we can hopefully
+		make real color happen.
+		
+		
+
+ */

@@ -1,48 +1,3 @@
-/**
-
-	TODO:
-		Switch palette model from direct DAC values to
-		H (as phase) / S (as color signal intensity) / L (as avg value)
-		triplets.
-		
-		Output signal is a combination of H/S + L.  H/S signal should
-		probably lead by 1/2 color clock i.e.
-		
-		Pixel -1:
-		Subsamples a,b = black
-		Subsamples c,d = black + HS signal of pixel 0
-		
-		Pixel 0:
-		Subsamples a,b = luma[0] + HS signal of pixel 0
-		Subsamples c,d = luma[0] + HS signal of pixel 1
-
-		Pixel 1:
-		Subsamples a,b = luma[1] + HS signal of pixel 1
-		Subsamples c,d = luma[1] + HS signal of pixel 2
-		
-		..etc
-		
-		
-	
-	For B&W mode -
-		Just disable colorburst.
-		
-	For color mode -
-		We need to sum the color signal and luma signal.
-		
-		i.e. generate a 16-value sine wave 
-		Use chroma as an index into this
-		
-		Look up chroma, add luma
-		
-		Due to our limited R-ladder we only have 4 bits total
-		which will limit luma to 3 bits.  By subsampling chroma
-		signal and generating 4 bits of output we can hopefully
-		make real color happen.
-		
-		
-
- */
 #define USE_DISPLAY_LIST 1
 
 #include <stdlib.h>
@@ -79,6 +34,12 @@ void video_core();
 // #define SYS_CLOCK_KHZ	150000
 #define SYS_CLOCK_KHZ	157500
 
+// The amount of time to display a black screen
+// before turning on the video display.  This 
+// is needed to give the TV time to lock the 
+// VBLANK signal.
+#define STARTUP_FRAME_DELAY 120
+
 /**********************************
  FRAMEBUFFER STUFF
  **********************************/
@@ -103,6 +64,64 @@ void drawline (int x0, int y0, int x1, int y1, uint8_t color)
 
 volatile int in_vblank = 0;
 
+/*
+	Raw DAC values to generate proper levels.
+*/
+#define SAMPLES_PER_CLOCK	4
+#define	DAC_BITS	8
+#define FIRST_GPIO_PIN 0
+
+#define MAX_DAC_OUT	((1 << DAC_BITS)-1)
+#define MIN_DAC_OUT	0
+#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define SYNC_VAL			MIN_DAC_OUT
+#define BLACK_LEVEL			(uint)(((47.5/140.0)*(float)MAX_DAC_OUT)+0.5)
+#define WHITE_LEVEL			MAX_DAC_OUT
+#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
+
+/* 
+	Values needed to make timing calculations
+*/
+
+#define NTSC_COLORBURST_FREQ	3579545.0
+#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
+#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+
+/*
+	Various timings needed to generate a proper NTSC signal.
+*/
+#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
+#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*30-2)
+#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
+
+/*
+	Set the total line width, in color clocks.
+	ALTERNATE_COLORBURST_PHASE will generate proper 262.5
+	color clock lines but is only partially supported at
+	the moment (and doesn't seem to be necessary.)
+	
+	Note that a lot of old equipment uses 228 color clock
+	lines; a lot of new equipment doesn't sync well to this
+	but is just fine with 226 color clocks.  
+*/
+
+#ifdef ALTERNATE_COLORBURST_PHASE
+#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
+#else 
+#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
+#endif 
+
+void setPalette(int num,float a,float b,float c,float d) {
+	palette[num][0] = BLACK_LEVEL+(uint8_t)(a*LUMA_SCALE);
+	palette[num][1] = BLACK_LEVEL+(uint8_t)(b*LUMA_SCALE);
+	palette[num][2] = BLACK_LEVEL+(uint8_t)(c*LUMA_SCALE);
+	palette[num][3] = BLACK_LEVEL+(uint8_t)(d*LUMA_SCALE);
+}
+
 int main() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
 
@@ -110,25 +129,13 @@ int main() {
 
 	multicore_launch_core1(video_core);
 
-
-	palette[0][0] = 15;
-	palette[0][1] = 15;
-	palette[0][2] = 31;
-	palette[0][3] = 31;
-	
-	palette[1][0] = 15;
-	palette[1][1] = 15;
-	palette[1][2] = 5;
-	palette[1][3] = 5;
-
-	palette[2][0] = 25;
-	palette[2][1] = 25;
-	palette[2][2] = 15;
-	palette[2][3] = 5;
-
+	setPalette(0,0,0,0,0);
+	setPalette(1,1,1,0,0);
+	setPalette(2,1,0.1,0.1,0.1);
+	setPalette(3,1,1,1,1);
 	
 	for (int i=0; i<200; i++) {
-//		memset(&framebuffer[i][0],0,160);
+		memset(&framebuffer[i][0],0,160);
 	}
 	
 	memset(&framebuffer[100][0],2,160);
@@ -173,62 +180,15 @@ void video_core() {
 	gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
 	
-    start_video(pio, 0, offset, 6, 5);
+    start_video(pio, 0, offset, FIRST_GPIO_PIN, DAC_BITS);
 	
 	while (1);
 }
 
 uint dma_channel;
 
-#define SAMPLES_PER_CLOCK	4
-#define	DAC_BITS	6
 
 
-/* 
-	Values needed to make timing calculations
-*/
-
-#define NTSC_COLORBURST_FREQ	3579545.0
-#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
-#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
-
-
-/*
-	Raw DAC values to generate proper levels.
-*/
-#define MAX_DAC_OUT	((1 << DAC_BITS)-1)
-#define MIN_DAC_OUT	0
-#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define SYNC_VAL			MIN_DAC_OUT
-
-
-/*
-	Various timings needed to generate a proper NTSC signal.
-*/
-#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*30-2)
-#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
-
-
-/*
-	Set the total line width, in color clocks.
-	ALTERNATE_COLORBURST_PHASE will generate proper 262.5
-	color clock lines but is only partially supported at
-	the moment (and doesn't seem to be necessary.)
-	
-	Note that a lot of old equipment uses 228 color clock
-	lines; a lot of new equipment doesn't sync well to this
-	but is just fine with 226 color clocks.  
-*/
-
-#ifdef ALTERNATE_COLORBURST_PHASE
-#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
-#else 
-#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
-#endif 
 
 
 /*
@@ -241,6 +201,8 @@ uint dma_channel;
 	ancient analog TV that you want to use.
 	
 */
+uint8_t test_line[LINE_WIDTH+1];
+
 uint8_t vblank_line[LINE_WIDTH+1];
 uint8_t vblank_odd_line[LINE_WIDTH+1];
 uint8_t black_line[LINE_WIDTH+1];
@@ -248,13 +210,10 @@ uint8_t black_line_2[LINE_WIDTH];
 
 uint8_t* black_lines[2] = {black_line,black_line_2 };
 
-uint8_t __scratch_y("pingpong_group") pingpong_line_0[LINE_WIDTH];
-uint8_t __scratch_y("pingpong_group") pingpong_line_1[LINE_WIDTH];
+uint8_t pingpong_line_0[LINE_WIDTH];
+uint8_t pingpong_line_1[LINE_WIDTH];
  
-uint8_t* __scratch_y("pingpong_group") pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
-
-//uint8_t video_line[LINE_WIDTH+1];
-//uint8_t video_line2[LINE_WIDTH+1];
+uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 
 int want_color=1;
@@ -407,7 +366,12 @@ display_list_t sample_display_list[] = { DISPLAY_LIST_BLACK_LINE, 35,
 						      DISPLAY_LIST_USER_RENDER, 200,
 							  DISPLAY_LIST_WVB,0 };
 
-display_list_t* display_list_ptr = sample_display_list;
+// Our initial display list is just a black display.  This allows the TV time to 
+// lock VBLANK.
+int startup_frame_counter = STARTUP_FRAME_DELAY;
+display_list_t startup_display_list[] = { DISPLAY_LIST_WVB, 0 };
+
+display_list_t* display_list_ptr = startup_display_list;
 
 display_list_t  display_list_current_cmd = 0;
 display_list_t display_list_lines_remaining = 0;
@@ -425,15 +389,34 @@ typedef uint8_t* (*user_render_func_t)(uint);
 uint8_t user_line[160];
 
 static uint8_t* __not_in_flash_func(user_render_ex)(uint line) {
-	for (int i=0; i<160; i++) { user_line[i] = i & 3; } // framebuffer[line-framebuffer_line_offset][i]; };
+	for (int i=0; i<160; i++) { user_line[i] = framebuffer[line-framebuffer_line_offset][i]; };
 	return user_line;
 }
 
+int frcount = 0;
+
+#define CCC	2
 static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_render_func_t user_func) {
 	//	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
 		uint8_t* sourceline = user_func(line);
 		uint8_t* colorptr;
+		frcount++;
 		int ofs = VIDEO_START;
+
+/*
+		for (int i=0; i<160; i++) {
+			// colorptr = palette[sourceline[i]];
+		
+			// The compiler will optimize this		
+			dest[ofs] = 96 + i;
+			dest[ofs+1] = 96 + i;
+			dest[ofs+2] = 96 + i;
+			dest[ofs+3] = 96 + i;
+			ofs += 4;
+		}
+*/
+
+
 		for (int i=0; i<160; i++) {
 			colorptr = palette[sourceline[i]];
 		
@@ -466,9 +449,23 @@ static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
 			dest[ofs+1] = colorptr[1];
 			dest[ofs+2] = colorptr[2];
 			dest[ofs+3] = colorptr[3];
+			
 			ofs += 4;
 		}
 }
+
+
+
+/*
+
+DAC test only
+
+static void __not_in_flash_func(cvideo_dma_handler)(void) {
+    dma_channel_set_read_addr(dma_channel, test_line, true);
+    dma_hw->ints0 = 1 << dma_channel;		
+}
+
+*/
 
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	
@@ -484,6 +481,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 	if (line >= 262) {
 		in_vblank = 1;
+		
 		if (even_frame) {
 		    next_dma_line = vblank_line;
 			line = 0;
@@ -497,8 +495,15 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 			even_frame = 1;
 		} 
 
-		// Reset display list
-		display_list_ptr = sample_display_list;
+		if (display_list_ptr != sample_display_list) {
+			startup_frame_counter--;
+			if (startup_frame_counter == 0) {
+				display_list_ptr = sample_display_list;			
+			}
+		} else {			
+			display_list_ptr = sample_display_list;
+		}
+
 		display_list_ofs = 0;
 		display_list_current_cmd = 0;
 		display_list_lines_remaining = 0;
@@ -552,6 +557,10 @@ void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
 	make_vsync_line();
 	
+	for (int i=0; i<768; i++) {
+		test_line[i] = i/3;
+	}
+	
 	make_normal_line(black_lines[0],do_color,0);
 	make_normal_line(black_lines[1],do_color,0);
 	make_normal_line(pingpong_lines[0],do_color,0);
@@ -576,7 +585,7 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	init_video_lines();
 			
 	// Initialize the PIO program
-    ntsc_composite_program_init(pio, sm, offset, pin, num_pins);
+    ntsc_composite_program_init(pio, sm, offset, FIRST_GPIO_PIN,DAC_BITS );
 	
 	// Configure DMA
 	
