@@ -309,7 +309,7 @@ void setPaletteRGB_float(int num,float r, float g, float b) {
 
 	// Find S and H
 	float s = sqrt(u*u+v*v);
-	float h = atan2(v,u) + (55/180 * 3.14159 * 2);
+	float h = atan2(v,u); // + (55/180 * 3.14159 * 2);
 	if (h < 0) h += 2*3.14159;
 	
 //	h += (55/180 * 3.14159);
