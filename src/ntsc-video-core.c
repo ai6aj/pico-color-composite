@@ -572,67 +572,78 @@ uint8_t atari_register_update_times[8];
 uint8_t atari_register_update_values[8];
 uint8_t atari_tmp_line[320];
 
-uint8_t atari_palette[] = { 0x00, 0x0F, 0x3F, 0x8F, 0x00, 0x00, 0x00, 0x00 };
+uint8_t atari_palette[] = { 0x04, 0x08, 0x0C, 0x0F, 0x00, 0x00, 0x00, 0x00 };
 
-uint32_t atari_twocolor_mode_patterns[16] = {
-	0x00000000,
-	0x00000002,
-	0x00000200,
-	0x00000202,
-	0x00020000,
-	0x00020002,
-	0x00020200,
-	0x00020202,
-	0x02000000,
-	0x02000002,
-	0x02000200,
-	0x02000202,
-	0x02020000,
-	0x02020002,
-	0x02020200,
-	0x02020202  };
 
-uint32_t atari_fourcolor_mode_patterns[16] = {
-	0x00000000,
-	0x00000101,
-	0x00000202,
-	0x00000303,
-	0x01010000,
-	0x01010101,
-	0x01010202,
-	0x01010303,
-	0x02020000,
-	0x02020101,
-	0x02020202,
-	0x02020303,
-	0x03030000,
-	0x03030101,
-	0x03030202,
-	0x03030303 };
+uint16_t atari_fourcolor_mode_patterns[16] = {
+		0x0000,
+		0x0001,
+		0x0002,
+		0x0003,
+		0x0100,
+		0x0101,
+		0x0102,
+		0x0103,
+		0x0200,
+		0x0201,
+		0x0202,
+		0x0203,
+		0x0300,
+		0x0301,
+		0x0302,
+		0x0303		
+	};
 	
+/* The palette update routine will set colors C/D/E/F to
+	match a specific bit/luma pattern. */
+uint16_t atari_hires_mode_patterns[16] = {
+		0x000C,
+		0x000D,
+		0x000E,
+		0x000F,
+		0x0C0C,
+		0x0C0D,
+		0x0C0E,
+		0x0C0F,
+		0x0D0C,
+		0x0D0D,
+		0x0D0E,
+		0x0D0F,
+		0x0E0C,
+		0x0E0D,
+		0x0E0E,
+		0x0E0F,
+		0x0F0C,
+		0x0F0D,
+		0x0F0E,
+		0x0F0F };
 	
+// The raw signal output for our pallette will go here.
+uint32_t atari_pallette_raw[16];
+
 volatile int atari_mode_line = 0;
 
+/*
+	NOTES -
+
+		Instead of rendering to 320 pixels and trying to calculate our signal from there,
+		we render to 160 pixels and reserve colors 0xC - 0xF for the hi-res modes.  This
+		greatly speeds up rendering and should give us ample time to implement P/M graphics
+		etc.
+		
+		We need to modify how we access the palette - instead of using the built-in 256 color
+		palette we need to copy what we want to our own 16 color palette and use that to
+		generate the video signal.
+		
+		We can speed up video signal generation by getting the "fast path" working where we 
+		do a 32-bit copy from the palette to the video signal rather than the existing 
+		byte-at-a-time.
+		
+		It should be mentioned in the notes that none of this optimization happened easily!!!
+*/
+
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
-	uint32_t* mode_patterns;
-	switch (atari_mode_line) {
-		case 1:
-		case 2:
-		case 3:
-		case 4:
-			mode_patterns = NULL;
-			break;
-			
-		case 5:
-		case 6:
-			mode_patterns = (uint32_t*)atari_tmp_line;
-			break;
-			
-		case 7:
-		case 8:
-			mode_patterns = atari_fourcolor_mode_patterns;
-			break;
-	}
+	uint16_t* mode_patterns = atari_fourcolor_mode_patterns;
 
 	/* Step one is to translate the DMA'd line into its bit pattern. */
 	int atart_tmp_line_ofs = 0;
@@ -645,48 +656,41 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 	int reduce_shift_by = 1;
 	int shift_times = 8;
 
-	uint32_t* user_line_32 = (uint32_t*)user_line;
+	uint16_t* user_line_16 = (uint16_t*)user_line;
 
-	// We should really write 320+ bytes here, not 160.
 	for (int i=0; i<40; i++) {
 		uint8_t data = atari_source_data[atari_source_line_ofs++];
-		user_line_32[user_line_ofs++] = (mode_patterns[data & 0x0F]);
-		user_line_32[user_line_ofs++] = (mode_patterns[data >> 4]);
+		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
+		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
 	}
 
 
 	// Our final trick is to render directly to the output signal via the palette.
-	// This is the fast path...
-	/*
-	int ofs = video_start;
-	uint16_t* colorptr;
-	uint16_t* dest = &output_buffer[ofs-2];
+	// This is the fast path... it doesn't work right now (and probably isn't necessary)
+
+/*	int ofs = video_start;
+	uint32_t* colorptr;
+	uint32_t* dest = (uint32_t*)(&output_buffer[ofs]);
 	
 	int colorptr_ofs = 0;
-	for (int i=0; i<320; i++) {
-		colorptr = palette[atari_palette[user_line[i]]];
-		
-		// The compiler will optimize this		
+	for (int i=0; i<160; i++) {
+		colorptr = palette[atari_palette[user_line[i]]];		
 		dest[i] = colorptr[0];
 	} */
 
-	/* This is the slow path - colors are more accurate but  */
-	int ofs = video_start-3;
+	/* This is the slow path */
+	int ofs = video_start;
 	uint8_t* dest = &output_buffer[ofs];
 	uint8_t* colorptr;
 	
 	int colorptr_ofs = 0;
-	for (int i=0; i<320; i++) {
+	for (int i=0; i<160; i++) {
 		colorptr = palette[atari_palette[user_line[i]]];
-		
-		// The compiler will optimize this		
-		*(dest++) = colorptr[colorptr_ofs+0];
-		*(dest++) = colorptr[colorptr_ofs+1];
-		colorptr_ofs ^= 2;
+		*(dest++) = colorptr[0];
+		*(dest++) = colorptr[1];
+		*(dest++) = colorptr[2];
+		*(dest++) = colorptr[3];
 	}
-
-	
-//	memcpy(&output_buffer[video_start-3],&output_buffer[video_start],640);
 	
 }
 
@@ -947,7 +951,7 @@ float get_video_core_load() {
 
 void ntsc_video_core() {
 	
-	for (int i=0; i<48; i++) atari_source_data[i] = 0x59;
+	for (int i=0; i<48; i++) atari_source_data[i] = 0b00011011;
 	atari_mode_line = 8;
 	
     PIO pio = pio0;
