@@ -1,140 +1,6 @@
 #include "ntsc-video-core.h"
 #include "pico-ntsc.pio.h"
-
-/* The Atari 8-bit palette, used to test RGB to NTSC palette conversion */
-
-uint32_t atari_8bit_fullColors[] = {
-0x00000000, 0x00202020,
-0x00404040, 0x00565656,
-0x006c6c6c, 0x007e7e7e,
-0x00909090, 0x00a0a0a0,
-0x00b0b0b0, 0x00bcbcbc,
-0x00c8c8c8, 0x00d2d2d2,
-0x00dcdcdc, 0x00e4e4e4,
-0x00ececec, 0x00ececec,
-0x00444400, 0x00545408,
-0x00646410, 0x0074741a,
-0x00848424, 0x0092922c,
-0x00a0a034, 0x00acac3a,
-0x00b8b840, 0x00c4c448,
-0x00d0d050, 0x00dcdc56,
-0x00e8e85c, 0x00f2f262,
-0x00fcfc68, 0x00fcfc68,
-0x00702800, 0x007a360a,
-0x00844414, 0x008e501e,
-0x00985c28, 0x00a26a32,
-0x00ac783c, 0x00b48244,
-0x00bc8c4c, 0x00c49654,
-0x00cca05c, 0x00d4aa62,
-0x00dcb468, 0x00e4be70,
-0x00ecc878, 0x00ecc878,
-0x00841800, 0x008e260c,
-0x00983418, 0x00a24224,
-0x00ac5030, 0x00b65c3c,
-0x00c06848, 0x00c87452,
-0x00d0805c, 0x00d88a66,
-0x00e09470, 0x00e69e78,
-0x00eca880, 0x00f4b28a,
-0x00fcbc94, 0x00fcbc94,
-0x00880000, 0x00921010,
-0x009c2020, 0x00a62e2e,
-0x00b03c3c, 0x00b84a4a,
-0x00c05858, 0x00c86464,
-0x00d07070, 0x00d87c7c,
-0x00e08888, 0x00e69494,
-0x00eca0a0, 0x00f4aaaa,
-0x00fcb4b4, 0x00fcb4b4,
-0x0078005c, 0x00821068,
-0x008c2074, 0x00962e7e,
-0x00a03c88, 0x00a84a92,
-0x00b0589c, 0x00b864a6,
-0x00c070b0, 0x00c87ab8,
-0x00d084c0, 0x00d690c8,
-0x00dc9cd0, 0x00e4a6d8,
-0x00ecb0e0, 0x00ecb0e0,
-0x00480078, 0x00541084,
-0x00602090, 0x006c2e9a,
-0x00783ca4, 0x00824aae,
-0x008c58b8, 0x009664c2,
-0x00a070cc, 0x00aa7ad4,
-0x00b484dc, 0x00bc90e4,
-0x00c49cec, 0x00cca6f4,
-0x00d4b0fc, 0x00d4b0fc,
-0x00140084, 0x0022108e,
-0x00302098, 0x003e2ea2,
-0x004c3cac, 0x005a4ab6,
-0x006858c0, 0x007264c8,
-0x007c70d0, 0x00887cd8,
-0x009488e0, 0x009e94e6,
-0x00a8a0ec, 0x00b2aaf4,
-0x00bcb4fc, 0x00bcb4fc,
-0x00000088, 0x000e1092,
-0x001c209c, 0x002a30a6,
-0x003840b0, 0x00444eb8,
-0x00505cc0, 0x005c68c8,
-0x006874d0, 0x007280d8,
-0x007c8ce0, 0x008698e6,
-0x0090a4ec, 0x009aaef4,
-0x00a4b8fc, 0x00a4b8fc,
-0x0000187c, 0x000e2886,
-0x001c3890, 0x002a469c,
-0x003854a8, 0x004462b2,
-0x005070bc, 0x005c7cc4,
-0x006888cc, 0x007292d4,
-0x007c9cdc, 0x0086a8e4,
-0x0090b4ec, 0x009abef4,
-0x00a4c8fc, 0x00a4c8fc,
-0x00002c5c, 0x000e3c6a,
-0x001c4c78, 0x002a5a84,
-0x00386890, 0x0044769e,
-0x005084ac, 0x005c90b6,
-0x00689cc0, 0x0072a8ca,
-0x007cb4d4, 0x0086c0de,
-0x0090cce8, 0x009ad6f2,
-0x00a4e0fc, 0x00a4e0fc,
-0x00003c2c, 0x000e4c3a,
-0x001c5c48, 0x002a6c56,
-0x00387c64, 0x00448c72,
-0x00509c80, 0x005ca88a,
-0x0068b494, 0x0072c2a0,
-0x007cd0ac, 0x0086dab6,
-0x0090e4c0, 0x009af0ca,
-0x00a4fcd4, 0x00a4fcd4,
-0x00003c00, 0x00104c10,
-0x00205c20, 0x00306c30,
-0x00407c40, 0x004e8c4e,
-0x005c9c5c, 0x0068a868,
-0x0074b474, 0x0080c280,
-0x008cd08c, 0x0098da98,
-0x00a4e4a4, 0x00aef0ae,
-0x00b8fcb8, 0x00b8fcb8,
-0x00143800, 0x00244a0e,
-0x00345c1c, 0x00426c2a,
-0x00507c38, 0x005e8a44,
-0x006c9850, 0x0078a65c,
-0x0084b468, 0x0090c072,
-0x009ccc7c, 0x00a8d886,
-0x00b4e490, 0x00bef09a,
-0x00c8fca4, 0x00c8fca4,
-0x002c3000, 0x003c400e,
-0x004c501c, 0x005a6028,
-0x00687034, 0x00767e40,
-0x00848c4c, 0x00909a58,
-0x009ca864, 0x00a8b46e,
-0x00b4c078, 0x00c0ca80,
-0x00ccd488, 0x00d6e092,
-0x00e0ec9c, 0x00e0ec9c,
-0x00442800, 0x0054380c,
-0x00644818, 0x00745824,
-0x00846830, 0x0092763a,
-0x00a08444, 0x00ac904e,
-0x00b89c58, 0x00c4a862,
-0x00d0b46c, 0x00dcc074,
-0x00e8cc7c, 0x00f2d684,
-0x00fce08c, 0x00fce08c
-};
-
-
+#include "atari-8bit-video-core.h"
 
 const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
@@ -198,7 +64,6 @@ volatile int in_vblank = 0;
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*30-2)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 // The amount of time to display a black screen
@@ -250,24 +115,24 @@ void setPaletteNTSC(int num,float chroma_phase,float chroma_amplitude,float lumi
 	
 	// Saturation = amplitude of chroma signal.
 	
-	int tmp = BLACK_LEVEL + sin(chroma_phase)*sat_scaled + luminance*LUMA_SCALE;
+	int tmp = BLACK_LEVEL + sin(chroma_phase + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
 	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
 	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
 	
 	
 	palette[num][0] = tmp;
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159/2)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
 	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
 	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
 	
 	palette[num][1] = tmp;
 	
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
 	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
 	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
 	palette[num][2] = tmp;
 	
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159*3/2)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159*3/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
 	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
 	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;palette[num][3] = tmp;
 	palette[num][3] = tmp;
@@ -484,9 +349,7 @@ uint8_t*	next_dma_line = vblank_line;
 
 
 // Basic display list for a 200 line display.
-typedef unsigned int display_list_t;
-display_list_t sample_display_list[] = { DISPLAY_LIST_BLACK_LINE, 35,
-						      DISPLAY_LIST_USER_RENDER_RAW, 200,
+display_list_t sample_display_list[] = { DISPLAY_LIST_USER_RENDER_RAW, ATARI_NTSC_VERTICAL_LINE_COUNT,
 							  DISPLAY_LIST_WVB,0 };
 
 // Our initial display list is just a black display.  This allows the TV time to 
@@ -495,6 +358,7 @@ volatile int startup_frame_counter = STARTUP_FRAME_DELAY;
 display_list_t startup_display_list[] = { DISPLAY_LIST_WVB, 0 };
 
 display_list_t* display_list_ptr = startup_display_list;
+display_list_t* next_display_list = sample_display_list;
 
 display_list_t  display_list_current_cmd = 0;
 display_list_t display_list_lines_remaining = 0;
@@ -507,192 +371,9 @@ display_list_t display_list_ofs = 0;
 */
 int framebuffer_line_offset = 35;
 
-typedef uint8_t* (*user_render_func_t)(uint);
-typedef void (user_render_raw_func_t)(uint, uint, uint8_t*);
 
 uint8_t user_line[320];
 
-/* Test of (almost) worst-case performance for Atari:
-	Graphics Mode 8
-	
-	NOTES:
-		- The entire atari_render func needs to be rewritten from scratch; see below
-	
-		- We can't go above ~75% on video core usage without the display going haywire
-		
-		- We probably need to implement a USER_DIRECT_RENDER call so we can directly
-		  generate the output signal rather than rendering the line to a framebuffer line,
-		  then having another function translate that framebuffer line to the video signal
-		  
-		- Using a LUT to translate graphics data to intermediate output data is a lot faster
-		  than trying to calculate it programatically
-		  
-		- An elegant solution to the color change problem is to use partial render: implement
-		  the video rendering routine to render from (x1,x2) rather than trying to render
-		  everything, then patch it.  The rendering routine will be slower, but it will run
-		  in (relatively) constant time and will be straightforward to optimize.
-		  
-		  Now we can simply step through captured writes to the palette registers, i.e.
-		  
-		  NO WRITES TO PALETTE REGS:
-			render(0,159)
-			
-		  SAMPLE WRITES TO PALETTE REGS - AT CLOCKS 50 AND 100:
-			render(0,50)
-			update palette
-			render(50,100)
-			update palette
-			render(100,159)
-			
-		- The above also solves a problem with Mode 0 and Mode 8, which both use 2x the color clock.
-		
-		  Instead of trying to render everything at 320 pixel horizontal resolution, Mode 0 and Mode 8
-		  will act as a Mode 7 line with special palette indexes for the bit patterns 00,01,10,and 11
-		  
-		  i.e. a normal mode 7 line might use indexes 0-7, a mode 8 line will also use indexes 8 (00),
-		  9 (01), 10 (10), and 11 (11)
-		  
-	    - The above ALSO solves the problem of implementing P/M graphics, as we can use the same technique:
-		
-		  SAMPLE WRITE TO HPOS REG - AT CLOCK 50:
-			render(0,50)
-			update hpos
-			render(50,159)
-			
-		- The above ALSO is the path we need to take for the 2600 which lacks DMA
-		
-		
-*/
-uint8_t atari_source_data[48];
-uint8_t atari_dma_data[48];
-volatile int atari_playfield_width = 48;
-
-uint8_t atari_color_registers[8];
-uint8_t atari_register_update_times[8];
-uint8_t atari_register_update_values[8];
-uint8_t atari_tmp_line[320];
-
-uint8_t atari_palette[] = { 0x04, 0x08, 0x0C, 0x0F, 0x00, 0x00, 0x00, 0x00 };
-
-
-uint16_t atari_fourcolor_mode_patterns[16] = {
-		0x0000,
-		0x0001,
-		0x0002,
-		0x0003,
-		0x0100,
-		0x0101,
-		0x0102,
-		0x0103,
-		0x0200,
-		0x0201,
-		0x0202,
-		0x0203,
-		0x0300,
-		0x0301,
-		0x0302,
-		0x0303		
-	};
-	
-/* The palette update routine will set colors C/D/E/F to
-	match a specific bit/luma pattern. */
-uint16_t atari_hires_mode_patterns[16] = {
-		0x000C,
-		0x000D,
-		0x000E,
-		0x000F,
-		0x0C0C,
-		0x0C0D,
-		0x0C0E,
-		0x0C0F,
-		0x0D0C,
-		0x0D0D,
-		0x0D0E,
-		0x0D0F,
-		0x0E0C,
-		0x0E0D,
-		0x0E0E,
-		0x0E0F,
-		0x0F0C,
-		0x0F0D,
-		0x0F0E,
-		0x0F0F };
-	
-// The raw signal output for our pallette will go here.
-uint32_t atari_pallette_raw[16];
-
-volatile int atari_mode_line = 0;
-
-/*
-	NOTES -
-
-		Instead of rendering to 320 pixels and trying to calculate our signal from there,
-		we render to 160 pixels and reserve colors 0xC - 0xF for the hi-res modes.  This
-		greatly speeds up rendering and should give us ample time to implement P/M graphics
-		etc.
-		
-		We need to modify how we access the palette - instead of using the built-in 256 color
-		palette we need to copy what we want to our own 16 color palette and use that to
-		generate the video signal.
-		
-		We can speed up video signal generation by getting the "fast path" working where we 
-		do a 32-bit copy from the palette to the video signal rather than the existing 
-		byte-at-a-time.
-		
-		It should be mentioned in the notes that none of this optimization happened easily!!!
-*/
-
-static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
-	uint16_t* mode_patterns = atari_fourcolor_mode_patterns;
-
-	/* Step one is to translate the DMA'd line into its bit pattern. */
-	int atart_tmp_line_ofs = 0;
-	int atari_source_line_ofs = 0;
-	int user_line_ofs = 0;
-	
-	int shift_start = 7;
-	int shift_mask = 0x01;
-	int shift_by = 1;
-	int reduce_shift_by = 1;
-	int shift_times = 8;
-
-	uint16_t* user_line_16 = (uint16_t*)user_line;
-
-	for (int i=0; i<40; i++) {
-		uint8_t data = atari_source_data[atari_source_line_ofs++];
-		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
-		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
-	}
-
-
-	// Our final trick is to render directly to the output signal via the palette.
-	// This is the fast path... it doesn't work right now (and probably isn't necessary)
-
-/*	int ofs = video_start;
-	uint32_t* colorptr;
-	uint32_t* dest = (uint32_t*)(&output_buffer[ofs]);
-	
-	int colorptr_ofs = 0;
-	for (int i=0; i<160; i++) {
-		colorptr = palette[atari_palette[user_line[i]]];		
-		dest[i] = colorptr[0];
-	} */
-
-	/* This is the slow path */
-	int ofs = video_start;
-	uint8_t* dest = &output_buffer[ofs];
-	uint8_t* colorptr;
-	
-	int colorptr_ofs = 0;
-	for (int i=0; i<160; i++) {
-		colorptr = palette[atari_palette[user_line[i]]];
-		*(dest++) = colorptr[0];
-		*(dest++) = colorptr[1];
-		*(dest++) = colorptr[2];
-		*(dest++) = colorptr[3];
-	}
-	
-}
 
 static uint8_t* __not_in_flash_func(user_render_ex)(uint line) {
 	for (int i=0; i<160; i++) { user_line[i] = framebuffer[line-framebuffer_line_offset][i]; };
@@ -719,6 +400,11 @@ static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_rende
 		}
 }
 
+user_render_raw_func_t	*user_render_raw_func = NULL;
+
+void set_user_render_raw(user_render_raw_func_t *f) {
+	user_render_raw_func = f;
+}
 
 static void __not_in_flash_func(user_render_160)(uint line, uint8_t* dest,user_render_func_t user_func) {
 		uint8_t* sourceline = user_func(line);
@@ -793,13 +479,13 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 			even_frame = 1;
 		} 
 
-		if (display_list_ptr != sample_display_list) {
+		if (startup_frame_counter) {
 			startup_frame_counter--;
 			if (startup_frame_counter == 0) {
-				display_list_ptr = sample_display_list;			
+				display_list_ptr = next_display_list;			
 			}
 		} else {			
-			display_list_ptr = sample_display_list;
+			display_list_ptr = next_display_list;
 		}
 
 		display_list_ofs = 0;
@@ -844,7 +530,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 				case DISPLAY_LIST_USER_RENDER_RAW:
 				    //next_dma_line = black_lines[line & 1];
 					next_dma_line = pingpong_lines[line & 1];			
-					atari_render(line,VIDEO_START,pingpong_lines[line & 1]);
+					user_render_raw_func(line,VIDEO_START,pingpong_lines[line & 1]);
 					break;
 			}
 			
@@ -950,9 +636,8 @@ float get_video_core_load() {
 }
 
 void ntsc_video_core() {
+	init_atari_8bit_video_core();
 	
-	for (int i=0; i<48; i++) atari_source_data[i] = 0b00011011;
-	atari_mode_line = 8;
 	
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &ntsc_composite_program);

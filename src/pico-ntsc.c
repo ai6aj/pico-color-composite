@@ -16,11 +16,6 @@ int main() {
 	
 	multicore_launch_core1(ntsc_video_core);
 	
-	for (int i=0; i<200; i++) {
-		uint32_t rgb = atari_8bit_fullColors[i];
-		setPaletteRGB(i,(rgb & 0xFF0000) >> 16, (rgb & 0xFF00) >> 8, (rgb & 0xFF));
-		memset(&framebuffer[i][0],i,160);
-	}
 	
 	memset(&framebuffer[100][0],2,160);
 

@@ -26,7 +26,6 @@ float get_video_core_load();
 //#define SYS_CLOCK_KHZ	120000
 #define SYS_CLOCK_KHZ	157500
 
-extern uint32_t atari_8bit_fullColors[];
 
 /**********************************
  FRAMEBUFFER STUFF
@@ -68,8 +67,15 @@ extern volatile int in_vblank;
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*30-2)
+
+// VIDEO_START *MUST* be 32-bit aligned.
+#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*20)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
+// The chroma phase shift needed to adjust for VIDEO_START.  This
+// will typically be some fraction of pi.
+#define VIDEO_START_PHASE_SHIFT	3.14159
+
 
 // The amount of time to display a black screen
 // before turning on the video display.  This 
@@ -132,5 +138,10 @@ extern display_list_t sample_display_list[];
 extern volatile int startup_frame_counter;
 
 typedef uint8_t* (*user_render_func_t)(uint);
+typedef unsigned int display_list_t;
+typedef void (user_render_raw_func_t)(uint, uint, uint8_t*);
+
+void set_user_render_raw(user_render_raw_func_t);
+
 
 #endif
