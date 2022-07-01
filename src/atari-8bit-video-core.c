@@ -1,6 +1,7 @@
 #include "ntsc-video-core.h"
 #include "atari-8bit-video-core.h"
 #include "atari-8bit-palette-colors.h"
+#include "atari-8bit-charset.h"
 
 // Basic display list for a 200 line display.
 display_list_t atari_8bit_display_list[] = { 
@@ -58,7 +59,9 @@ display_list_t atari_8bit_display_list[] = {
 		
 		
 */
-uint8_t atari_source_data[48];
+uint8_t atari_source_data[2048];
+int atari_source_data_ofs = 0;
+
 uint8_t atari_dma_data[48];
 volatile int atari_playfield_width = 48;
 
@@ -154,12 +157,21 @@ volatile int atari_mode_line = 0;
 */
 
 uint8_t user_line[192];
+uint8_t chset_line;
+
+int atari_source_line_ofs = 0;
+
+static void __not_in_flash_func(atari_vblank)() {
+		atari_source_line_ofs = 0;
+		chset_line = 0;
+}
+
+
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
 	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
 
 	/* Step one is to translate the DMA'd line into its bit pattern. */
-	int atart_tmp_line_ofs = 0;
-	int atari_source_line_ofs = 0;
+	int atari_tmp_line_ofs = atari_source_line_ofs;
 	int user_line_ofs = 0;
 	
 	int shift_start = 7;
@@ -170,11 +182,26 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 	uint16_t* user_line_16 = (uint16_t*)user_line;
 
+	
+
 	for (int i=0; i<48; i++) {
-		uint8_t data = atari_source_data[atari_source_line_ofs++];
+		uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];
+		uint8_t data = atari_8bit_charset[(chdata << 3) + chset_line];
 		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
 		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
 	}
+
+	chset_line++; 
+	if (chset_line == 8) {
+		atari_source_line_ofs += 48;
+		chset_line = 0;
+	}
+
+/*	for (int i=0; i<48; i++) {
+		uint8_t data = atari_source_data[atari_source_line_ofs++];
+		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
+		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
+	} */
 
 
 	/* There are two ways to render the display - the fast way using 32-bit copies,
@@ -218,14 +245,15 @@ void init_atari_8bit_video_core() {
 
 	setAtariColorRegister(ATARI_PF_COLOR_0,palette,128+2);
 	setAtariColorRegister(ATARI_PF_COLOR_1,palette,128+15);
-	setAtariColorRegister(ATARI_PF_COLOR_2,palette,144+0);
+	setAtariColorRegister(ATARI_PF_COLOR_2,palette,145+0);
 	setAtariColorRegister(ATARI_PF_COLOR_3,palette,128+12);
 
 	
-	for (int i=0; i<48; i++) {
-		atari_source_data[i] = 0b000110000;
+	for (int i=0; i<2048; i++) {
+		atari_source_data[i] = i & 0x7F;
 	}
 		
 	atari_mode_line = 8;
 	set_user_render_raw(atari_render);
+	set_user_vblank(atari_vblank);
 }

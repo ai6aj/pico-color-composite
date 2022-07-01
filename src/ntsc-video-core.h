@@ -141,8 +141,10 @@ extern volatile int startup_frame_counter;
 typedef uint8_t* (*user_render_func_t)(uint);
 typedef unsigned int display_list_t;
 typedef void (user_render_raw_func_t)(uint, uint, uint8_t*);
+typedef void (user_vblank_func_t)();
 
 void set_user_render_raw(user_render_raw_func_t);
+void set_user_vblank(user_vblank_func_t);
 
 
 #endif

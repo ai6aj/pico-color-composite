@@ -1,4 +1,5 @@
 #include "ntsc-video-core.h"
+#include "ntsc-video-core.h"
 #include "pico-ntsc.pio.h"
 #include "atari-8bit-video-core.h"
 
@@ -377,9 +378,14 @@ static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_rende
 }
 
 user_render_raw_func_t	*user_render_raw_func = NULL;
+user_vblank_func_t *user_vblank_func = NULL;
 
 void set_user_render_raw(user_render_raw_func_t *f) {
 	user_render_raw_func = f;
+}
+
+void set_user_vblank(user_vblank_func_t *f) {
+	user_vblank_func = f;
 }
 
 static void __not_in_flash_func(user_render_160)(uint line, uint8_t* dest,user_render_func_t user_func) {
@@ -467,6 +473,10 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 		display_list_ofs = 0;
 		display_list_current_cmd = 0;
 		display_list_lines_remaining = 0;
+		
+		if (user_vblank_func != NULL) {
+			user_vblank_func();
+		}
 	} else {
 			in_vblank = 0;
 			// If no display list command, read it
