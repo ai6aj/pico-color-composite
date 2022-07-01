@@ -17,6 +17,6 @@ For video:
 	
 
 For sound:
-	void set_POKEY_register(num, value, when)
+	void set_POKEY_register(num, value, when) */
 
 #endif

@@ -63,7 +63,6 @@ volatile int in_vblank = 0;
 	Various timings needed to generate a proper NTSC signal.
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 // The amount of time to display a black screen
@@ -223,39 +222,16 @@ void make_vsync_line() {
 void make_color_burst(uint8_t* line, int use_alternate_phase) {
 	uint8_t c1 = COLOR_BURST_HI_VAL;
 	uint8_t c2 = COLOR_BURST_LO_VAL;
-		
-	if (use_alternate_phase) {
-		uint8_t tmp;
-		tmp = c1; c1 = c2; c2 = tmp;
-	}
-				
-	if (SAMPLES_PER_CLOCK==2) {
-		for (int i=0; i<10; i++) {
-			line[COLOR_BURST_START+i*2] = c1;
-			line[COLOR_BURST_START+1+i*2] = c2;
-		}
-	}
-	else if (SAMPLES_PER_CLOCK==4) {
-		for (int i=0; i<10; i++) {
-			line[COLOR_BURST_START+i*4] = BLANKING_VAL;
-			line[COLOR_BURST_START+1+i*4] = c1;
-			line[COLOR_BURST_START+2+i*4] = BLANKING_VAL;
-			line[COLOR_BURST_START+3+i*4] = c2;
-		}
-	}
-	else {
-		for (int i=0; i<10; i++) {
-			line[COLOR_BURST_START+i*8] = BLANKING_VAL;
-			line[COLOR_BURST_START+1+i*8] = c1;
-			line[COLOR_BURST_START+2+i*8] = c1;
-			line[COLOR_BURST_START+3+i*8] = BLANKING_VAL;
-			line[COLOR_BURST_START+4+i*8] = BLANKING_VAL;
-			line[COLOR_BURST_START+5+i*8] = c2;
-			line[COLOR_BURST_START+6+i*8] = c2;
-			line[COLOR_BURST_START+7+i*8] = BLANKING_VAL;
-		}
-	}	
 	
+	float cb_scale = (c1-c2);
+	float phase = COLOR_BURST_PHASE_DEGREES/180.0 * 3.14159;	// Starting phase.
+	
+	for (int i=0; i<10; i++) {
+		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
+			line[COLOR_BURST_START+i*SAMPLES_PER_CLOCK+n] = BLANKING_VAL + (int)((cb_scale * sin(phase))+0.5);
+			phase += 3.14159*2/SAMPLES_PER_CLOCK;
+		}
+	}
 }
 
 void make_black_line() {

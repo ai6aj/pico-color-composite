@@ -68,13 +68,68 @@ uint8_t atari_register_update_values[8];
 uint8_t atari_tmp_line[320];
 
 uint8_t atari_palette[] = { 0x04, 0x08, 0x0C, 0x0F, 0x00, 0x00, 0x00, 0x00 };
+uint8_t atari_palette_8bit_value[] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 
-uint32_t	atari_signal_palette[16];
+uint32_t atari_signal_palette[16];
+
+#define ATARI_PM_COLOR_0	0
+#define	ATARI_PF_COLOR_0	4
+#define	ATARI_PF_COLOR_1	5
+#define	ATARI_PF_COLOR_2	6
+#define	ATARI_PF_COLOR_3	7
+
+/* Player / Playfield colors:
+	0		Player/Missile 0
+	1		Player/Missile 1
+	2		Player/Missile 2
+	3   	Player/Missile 3
+	4		Playfield 0
+	5		Playfield 1
+	6		Playfield 2
+	7		Playfield 3
+	8		Background
+	9..F	Only used in GTIA mode
+	C		Bit pattern 00 in hi-res mode
+	D		Bit pattern 01 in hi-res mode
+	E		Bit pattern 10 in hi-res mode
+	F		Bit pattern 11 in hi-res mode
+*/
+
 
 void setAtariColorRegister(int num,uint8_t palette[][4],int palette_num) {
 	uint32_t* colorptr;
 	colorptr = (uint32_t*)(palette[palette_num]);		
 	atari_signal_palette[num] = colorptr[0];
+	
+	// Save the 8-bit value it was set to, in case we need to look it up
+	// in the future e.g. for hi-res or GTIA modes
+	atari_palette_8bit_value[num] = palette_num;
+
+
+	// If we set playfield 1 or 2 in hi-res mode,
+	// we need to implicitly recalculate colors C-F
+	if (num == ATARI_PF_COLOR_1 || num == ATARI_PF_COLOR_2) {
+		colorptr = (uint32_t*)(palette[atari_palette_8bit_value[ATARI_PF_COLOR_2]]);		
+		uint32_t base_signal = colorptr[0];
+
+		colorptr = (uint32_t*)(palette[atari_palette_8bit_value[(ATARI_PF_COLOR_2 & 0xF0) | (ATARI_PF_COLOR_1 & 0x0F)]]);		
+		uint32_t luma_signal = colorptr[0];
+		
+		// Bit pattern 00
+		atari_signal_palette[0x0C] = base_signal;
+		
+		// Bit pattern 01.  Note that little-endianness means the bitmasks are
+		// the opposite of what you'd initially expect.
+		atari_signal_palette[0x0D] = (base_signal & 0xFFFF) | (luma_signal & 0xFFFF0000);
+		
+
+		// Bit pattern 10.  
+		atari_signal_palette[0x0E] = (base_signal & 0xFFFF0000) | (luma_signal & 0xFFFF);
+
+		atari_signal_palette[0x0F] = luma_signal;
+	}
+	
+	   
 }
 	
 volatile int atari_mode_line = 0;
@@ -100,7 +155,7 @@ volatile int atari_mode_line = 0;
 
 uint8_t user_line[192];
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
-	const uint16_t* mode_patterns = atari_fourcolor_mode_patterns;
+	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
 
 	/* Step one is to translate the DMA'd line into its bit pattern. */
 	int atart_tmp_line_ofs = 0;
@@ -161,13 +216,16 @@ void init_atari_8bit_video_core() {
 		setAtariColorRegister(i,palette,0);
 	}
 
-	setAtariColorRegister(0,palette,128+2);
-	setAtariColorRegister(1,palette,128+4);
-	setAtariColorRegister(2,palette,128+8);
-	setAtariColorRegister(3,palette,128+12);
+	setAtariColorRegister(ATARI_PF_COLOR_0,palette,128+2);
+	setAtariColorRegister(ATARI_PF_COLOR_1,palette,128+15);
+	setAtariColorRegister(ATARI_PF_COLOR_2,palette,144+0);
+	setAtariColorRegister(ATARI_PF_COLOR_3,palette,128+12);
 
 	
-	for (int i=0; i<48; i++) atari_source_data[i] = 0b00011011;
+	for (int i=0; i<48; i++) {
+		atari_source_data[i] = 0b000110000;
+	}
+		
 	atari_mode_line = 8;
 	set_user_render_raw(atari_render);
 }

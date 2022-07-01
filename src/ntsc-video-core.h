@@ -67,6 +67,7 @@ extern volatile int in_vblank;
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+#define COLOR_BURST_PHASE_DEGREES 0.0
 
 // VIDEO_START *MUST* be 32-bit aligned.
 #define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*20)
