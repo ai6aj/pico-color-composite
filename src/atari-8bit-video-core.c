@@ -209,7 +209,7 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 	   it provides ample CPU time for other stuff like P/M graphics and sound 
 	   generation.  The slow way is temporarily included for debugging purposes. */
 	uint32_t* colorptr;
-	uint32_t* dest = (uint16_t*)(&output_buffer[video_start]);
+	uint32_t* dest = (uint32_t*)(&output_buffer[video_start]);
 	
 	int colorptr_ofs = 0;
 	for (int i=0; i<192; i++) {
@@ -245,7 +245,7 @@ void init_atari_8bit_video_core() {
 
 	setAtariColorRegister(ATARI_PF_COLOR_0,palette,128+2);
 	setAtariColorRegister(ATARI_PF_COLOR_1,palette,128+15);
-	setAtariColorRegister(ATARI_PF_COLOR_2,palette,145+0);
+	setAtariColorRegister(ATARI_PF_COLOR_2,palette,64+0);
 	setAtariColorRegister(ATARI_PF_COLOR_3,palette,128+12);
 
 	

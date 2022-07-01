@@ -22,10 +22,25 @@ float get_video_core_load();
 // This overclocks the Pico a bit but gives us a nice
 // multiple of the NTSC clock frequency with low jitter
 // for a better signal.  Set this to 120000 for the default
-// Pico frequency.
-//#define SYS_CLOCK_KHZ	120000
+// Pico frequency; most emulation should still work but
+// the video core load will be higher and the display
+// quality will suffer.
+// #define SYS_CLOCK_KHZ	120000
 #define SYS_CLOCK_KHZ	157500
 
+// The phase of the generated colorburst signal.  
+// Old video hardware had a pot you could adjust to tune the
+// color.  This emulates that pot.  Adjust it to get the 
+// correct(ish) color output for your emulator; NTSC displays
+// were notoriously inaccurate and so were old consoles so
+// don't expect to every get perfect color rendition... there
+// was no such thing.
+//
+// TODO this should be a default; the value should be 
+// adjustable in software.  To properly implement it the
+// video core will need to rebuild the colorburst signal
+// during VBLANK.
+#define COLOR_BURST_PHASE_DEGREES 180.0
 
 /**********************************
  FRAMEBUFFER STUFF
@@ -67,7 +82,6 @@ extern volatile int in_vblank;
 */
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
-#define COLOR_BURST_PHASE_DEGREES 0.0
 
 // VIDEO_START *MUST* be 32-bit aligned.
 #define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*20)
@@ -75,7 +89,7 @@ extern volatile int in_vblank;
 
 // The chroma phase shift needed to adjust for VIDEO_START.  This
 // will typically be some fraction of pi.
-#define VIDEO_START_PHASE_SHIFT	3.14159
+#define VIDEO_START_PHASE_SHIFT	0 // 3.14159
 
 
 // The amount of time to display a black screen
