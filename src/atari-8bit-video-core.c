@@ -236,6 +236,12 @@ void clear_all_collisions() {
 }
 
 uint8_t get_player_player_collisions(uint8_t player) {
+	// Subtle bug here that should be easy to fix - 
+	// player/player collisions should report for 
+	// BOTH players but currently only the higher-numbered
+	// player will report it.  Simple enough to fix, just
+	// check the other player's collision data to see if it
+	// collided with us.
 	uint8_t rv = 0;
 	rv |= player_collisions[player][0];
 	rv |= player_collisions[player][1] << 1;
@@ -281,7 +287,11 @@ static inline void render_pm_graphics() {
 	}
 	
 	
-	// Now do missiles.  First generate the 4x missile bitmaps.
+	// Now do missiles.  NOTE there is a subtle bug in the missile-player
+	// collision detection - we will detect a missile to missile collision
+	// (which should not be reported) as missile to player.  If this is
+	// a problem it can be fixed by adding some pseudocolors to our 
+	// intermediate palette.
 	if (atari_missile_bitmap) {
 		uint8_t missile_data = atari_missile_bitmap;
 		for (int i=0; i<4; i++) {
