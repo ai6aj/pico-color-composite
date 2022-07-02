@@ -21,11 +21,17 @@ float get_video_core_load();
 
 // This overclocks the Pico a bit but gives us a nice
 // multiple of the NTSC clock frequency with low jitter
-// for a better signal.  Set this to 120000 for the default
-// Pico frequency; most emulation should still work but
-// the video core load will be higher and the display
-// quality will suffer.
+// for a better signal.  Set this to 133000 for the maximum
+// RP2040 frequency that's still in spec; most emulation 
+// should still work but display quality will suffer.
+//
+// The *default* Pico frequency is 120000, at this frequency
+// you can generate display but some emulators (i.e. Atari 8-bit)
+// won't have enough CPU time to generate their worst-case
+// display.
+//
 // #define SYS_CLOCK_KHZ	120000
+// #define SYS_CLOCK_KHZ	133000
 #define SYS_CLOCK_KHZ	157500
 
 // The phase of the generated colorburst signal.  
@@ -33,7 +39,7 @@ float get_video_core_load();
 // color.  This emulates that pot.  Adjust it to get the 
 // correct(ish) color output for your emulator; NTSC displays
 // were notoriously inaccurate and so were old consoles so
-// don't expect to every get perfect color rendition... there
+// don't expect to ever get perfect color rendition... there
 // was no such thing.
 //
 // TODO this should be a default; the value should be 

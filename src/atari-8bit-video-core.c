@@ -59,6 +59,7 @@ display_list_t atari_8bit_display_list[] = {
 		
 		
 */
+uint8_t atari_pm_graphics_enabled = 1;
 uint8_t atari_source_data[2048];
 int atari_source_data_ofs = 0;
 
@@ -76,6 +77,9 @@ uint8_t atari_palette_8bit_value[] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 uint32_t atari_signal_palette[16];
 
 #define ATARI_PM_COLOR_0	0
+#define ATARI_PM_COLOR_1	1
+#define ATARI_PM_COLOR_2	2
+#define ATARI_PM_COLOR_3	3
 #define	ATARI_PF_COLOR_0	4
 #define	ATARI_PF_COLOR_1	5
 #define	ATARI_PF_COLOR_2	6
@@ -156,7 +160,10 @@ volatile int atari_mode_line = 0;
 		It should be mentioned in the notes that none of this optimization happened easily!!!
 */
 
-uint8_t user_line[192];
+// NOTE - USER_LINE needs to be 256 to allow some dummy space
+// for rendering P/M graphics.  Only the first 192 bytes will
+// actually be used in generating the display.
+uint8_t user_line[256];
 uint8_t chset_line;
 
 int atari_source_line_ofs = 0;
@@ -166,6 +173,147 @@ static void __not_in_flash_func(atari_vblank)() {
 		chset_line = 0;
 }
 
+#define ATARI_PLAYER_MINIMUM_OFFSET		63 
+uint8_t atari_player_bitmaps[4];
+uint8_t atari_player_widths[4];
+uint8_t atari_player_offsets[4];
+
+uint8_t atari_missile_bitmap;
+uint8_t atari_missile_widths[4];
+uint8_t atari_missile_offsets[4];
+uint8_t atari_missile_is_one_color = 0;
+
+void set_player_hpos(uint8_t player,uint8_t hpos) {
+	atari_player_offsets[player & 0x7] = hpos;
+}
+
+// Playfied co
+const uint8_t pm_priority_table[][4] = {
+// 0
+{ 0,0,0,0 },
+// 1
+{ 0,1,1,1 },
+// 2
+{ 0,1,2,2 },
+// 3
+{ 0,1,2,3 },
+// 4
+{ 0,1,2,3 },
+// 5
+{ 0,1,2,3 },
+// 6
+{ 0,1,2,3 },
+// 7
+{ 0,1,2,3 },
+// 8
+{ 0,1,2,3 },
+// 9
+{ 0,1,2,3 },
+// A
+{ 0,1,2,3 },
+// B
+{ 0,1,2,3 },
+// C
+{ 0,1,2,3 },
+// D
+{ 0,1,2,3 },
+// E
+{ 0,1,2,3 },
+// F
+{ 0,1,2,3 },
+};
+
+uint8_t player_collisions[4][16];
+uint8_t missile_collisions[4][16];
+
+void clear_all_collisions() {
+	for (int x=0; x<4; x++) {
+		for (int y=0; y<16; y++) {
+			player_collisions[x][y] = 0;
+			missile_collisions[x][y] = 0;
+		}
+	}
+}
+
+uint8_t get_player_player_collisions(uint8_t player) {
+	uint8_t rv = 0;
+	rv |= player_collisions[player][0];
+	rv |= player_collisions[player][1] << 1;
+	rv |= player_collisions[player][2] << 2;
+	rv |= player_collisions[player][3] << 3;
+	return rv;	
+}
+
+uint8_t get_player_playfield_collisions(uint8_t player) {
+	uint8_t rv = 0;
+	rv |= player_collisions[player][4];
+	rv |= player_collisions[player][5] << 1;
+	rv |= player_collisions[player][6] << 2;
+	rv |= player_collisions[player][7] << 3;
+	rv |= player_collisions[player][0xC] ? 0x02 : 0;
+	rv |= player_collisions[player][0xD] ? 0x06 : 0;
+	rv |= player_collisions[player][0xE] ? 0x06 : 0;
+	rv |= player_collisions[player][0xF] ? 0x04 : 0;
+	return rv;	
+}
+
+static inline void render_pm_graphics() {
+	for (int i=0; i<4; i++) {
+		int player_width = atari_player_widths[i];
+		if (player_width > 0) {
+			uint8_t player_bitmap = atari_player_bitmaps[i];
+			uint8_t player_offset = atari_player_offsets[i];
+			uint8_t pixel_pos = player_offset-ATARI_PLAYER_MINIMUM_OFFSET;
+			for (int n=0; n<8; n++) {
+				if (player_bitmap & 0x80) {
+					for (int x=0; x<player_width; x++) {						
+						uint8_t user_line_byte = user_line[pixel_pos];
+						player_collisions[i][user_line_byte] = 1;
+						user_line[pixel_pos] = pm_priority_table[user_line_byte][i];
+						pixel_pos++;
+					}						
+				} else {
+					pixel_pos += player_width;
+				}
+				player_bitmap <<= 1;
+			}
+		}
+	}
+	
+	
+	// Now do missiles.  First generate the 4x missile bitmaps.
+	if (atari_missile_bitmap) {
+		uint8_t missile_data = atari_missile_bitmap;
+		for (int i=0; i<4; i++) {
+			uint8_t missile_color = atari_missile_is_one_color ? 7 : i;
+			uint8_t missile_width = atari_missile_widths[i];
+			uint8_t missile_offset = atari_missile_offsets[i];
+			uint8_t pixel_pos = missile_offset-ATARI_PLAYER_MINIMUM_OFFSET;
+			if (missile_data & 0x80) {
+				for (int x=0; x<missile_width; x++) {						
+					uint8_t user_line_byte = user_line[pixel_pos];
+					missile_collisions[i][user_line_byte] = 1;
+					user_line[pixel_pos] = pm_priority_table[user_line_byte][i];
+					pixel_pos++;
+				}
+			}
+			else { pixel_pos += missile_width; }
+
+			if (missile_data & 0x40) {
+				for (int x=0; x<missile_width; x++) {						
+					uint8_t user_line_byte = user_line[pixel_pos];
+					missile_collisions[i][user_line_byte] = 1;
+					user_line[pixel_pos] = pm_priority_table[user_line_byte][i];
+					pixel_pos++;
+				}
+			}
+
+			missile_data <<= 2;
+			
+		}
+	}
+	
+}
 
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
 	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
@@ -182,8 +330,7 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 	uint16_t* user_line_16 = (uint16_t*)user_line;
 
-	
-
+	/* Playfield graphics render first. */
 	for (int i=0; i<48; i++) {
 		uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];
 		uint8_t data = atari_8bit_charset[(chdata << 3) + chset_line];
@@ -191,11 +338,27 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
 	}
 
+
+	/* Player Graphics render next. */
+	if (atari_pm_graphics_enabled) {
+		
+		render_pm_graphics();
+		
+	}
+	
+	/* And finally, missiles */
+
+
+
+	/* Final housekeeping */
+
 	chset_line++; 
 	if (chset_line == 8) {
 		atari_source_line_ofs += 48;
 		chset_line = 0;
 	}
+
+
 
 /*	for (int i=0; i<48; i++) {
 		uint8_t data = atari_source_data[atari_source_line_ofs++];
@@ -233,7 +396,39 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 }
 
-void init_atari_8bit_video_core() {
+void worst_case_test() {
+	atari_mode_line = 8;
+
+	// Worst c
+	int width = 4;
+	atari_pm_graphics_enabled = 1;
+	atari_player_bitmaps[0] = 0xFF;	
+	atari_player_widths[0] = width;
+	atari_player_offsets[0] = 64;
+
+	atari_player_bitmaps[1] = 0xFF;
+	atari_player_widths[1] = width;
+	atari_player_offsets[1] = 98;
+
+	atari_player_bitmaps[2] = 0xFF;
+	atari_player_widths[2] = width;
+	atari_player_offsets[2] = 132;
+
+	atari_player_bitmaps[3] = 0xFF;
+	atari_player_widths[3] = width;
+	atari_player_offsets[3] = 166;
+
+	atari_missile_bitmap = 0b11111111;
+	atari_missile_widths[0] = width;
+	atari_missile_widths[1] = width;
+	atari_missile_widths[2] = width;
+	atari_missile_widths[3] = width;
+	atari_missile_offsets[0] = 200;
+	atari_missile_offsets[1] = 210;
+	atari_missile_offsets[2] = 220;
+	atari_missile_offsets[3] = 230;
+	
+	
 	for (int i=0; i<256; i++) {
 		uint32_t rgb = atari_8bit_fullColors[i];
 		setPaletteRGB(i,(rgb & 0xFF0000) >> 16, (rgb & 0xFF00) >> 8, (rgb & 0xFF));
@@ -243,17 +438,41 @@ void init_atari_8bit_video_core() {
 		setAtariColorRegister(i,palette,0);
 	}
 
+	setAtariColorRegister(ATARI_PM_COLOR_0,palette,255);
+	setAtariColorRegister(ATARI_PM_COLOR_1,palette,128+15);
+	setAtariColorRegister(ATARI_PM_COLOR_2,palette,64+15);
+	setAtariColorRegister(ATARI_PM_COLOR_3,palette,32+15);
+	
 	setAtariColorRegister(ATARI_PF_COLOR_0,palette,128+2);
-	setAtariColorRegister(ATARI_PF_COLOR_1,palette,128+15);
-	setAtariColorRegister(ATARI_PF_COLOR_2,palette,64+0);
+	setAtariColorRegister(ATARI_PF_COLOR_1,palette,0x0F);
+	setAtariColorRegister(ATARI_PF_COLOR_2,palette,96+0);
 	setAtariColorRegister(ATARI_PF_COLOR_3,palette,128+12);
 
 	
 	for (int i=0; i<2048; i++) {
 		atari_source_data[i] = i & 0x7F;
+	}	
+}
+
+void init_atari_8bit_video_core() {
+
+	// Initialize everything we need
+	// to start the renderer
+	atari_missile_bitmap = 0;
+	clear_all_collisions();
+	atari_pm_graphics_enabled = 0;
+	
+	for (int i=0; i<4; i++) {
+		atari_player_bitmaps[i] = 0;
+		atari_player_widths[i] = 0;
+		atari_missile_widths[i] = 0;
+		atari_player_offsets[i] = 0;
+		atari_missile_offsets[i] = 0;
 	}
-		
-	atari_mode_line = 8;
+
+	atari_mode_line=8;
 	set_user_render_raw(atari_render);
 	set_user_vblank(atari_vblank);
+	
+	worst_case_test();
 }

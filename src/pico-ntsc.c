@@ -7,7 +7,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
-
+#include "atari-8bit-video-core.h"
 
 
 int main() {
@@ -28,6 +28,8 @@ int main() {
 	
 	uint8_t foo = 0;
 	
+	uint8_t hpos = 63;
+	
 	while(1) {
 		// Dump some output to USB serial to make sure it a. works at selected clock frequency
 		// and b. doesn't interfere with the display		
@@ -41,7 +43,7 @@ int main() {
 		
 		// Wait until we're out of VBLANK before proceeding
 		while (in_vblank);
-
+//		set_player_hpos(0,hpos++);
 	}
 }
 	

@@ -6,6 +6,8 @@
 extern display_list_t atari_8bit_display_list[];
 void init_atari_8bit_video_core();
 
+void set_player_hpos(uint8_t player,uint8_t hpos);
+
 /*
 	TODO
 For video:
