@@ -235,6 +235,7 @@ void clear_all_collisions() {
 	}
 }
 
+
 uint8_t get_player_player_collisions(uint8_t player) {
 	// Subtle bug here that should be easy to fix - 
 	// player/player collisions should report for 
@@ -263,12 +264,12 @@ uint8_t get_player_playfield_collisions(uint8_t player) {
 	return rv;	
 }
 
-static inline void render_pm_graphics() {
+static inline void render_pm_graphics(uint8_t hscrol) {
 	for (int i=0; i<4; i++) {
 		int player_width = atari_player_widths[i];
 		if (player_width > 0) {
 			uint8_t player_bitmap = atari_player_bitmaps[i];
-			uint8_t player_offset = atari_player_offsets[i];
+			uint8_t player_offset = atari_player_offsets[i]+hscrol;
 			uint8_t pixel_pos = player_offset-ATARI_PLAYER_MINIMUM_OFFSET;
 			for (int n=0; n<8; n++) {
 				if (player_bitmap & 0x80) {
@@ -297,7 +298,7 @@ static inline void render_pm_graphics() {
 		for (int i=0; i<4; i++) {
 			uint8_t missile_color = atari_missile_is_one_color ? 7 : i;
 			uint8_t missile_width = atari_missile_widths[i];
-			uint8_t missile_offset = atari_missile_offsets[i];
+			uint8_t missile_offset = atari_missile_offsets[i]+hscrol;
 			uint8_t pixel_pos = missile_offset-ATARI_PLAYER_MINIMUM_OFFSET;
 			if (missile_data & 0x80) {
 				for (int x=0; x<missile_width; x++) {						
@@ -325,6 +326,32 @@ static inline void render_pm_graphics() {
 	
 }
 
+
+
+/*
+	NOTES ON SCROLLING:
+	
+	
+	...ANTIC accomplishes vertical scrolling not by moving the display list up and down by a number of scan lines, 
+	but by using the VSCROL value to skip that number of scan lines in the first line of the display list, 
+	essentially shortening the number of displayed lines...
+	
+	(https://www.playermissile.com/scrolling_tutorial/index.html)
+	
+	The HSCROL hardware register at $d404 controls the horizontal shift for fine scrolling, measured in color clocks from 0 - 15.
+
+	On display list instructions with the horizontal scrolling bit set, ANTIC automatically expands its screen memory use to the 
+	next larger playfield size, unless it is already using a wide playfield.
+*/
+
+int atari_antic_hscrol = 0;
+
+// Should always be 0, but using this variable
+// instead of a constant '0' enables the compiler
+// to do a little extra optimization for some reason
+// *shrug*
+int output_hscrol = 0;
+
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
 	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
 
@@ -350,15 +377,14 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 
 	/* Player Graphics render next. */
-	if (atari_pm_graphics_enabled) {
-		
-		render_pm_graphics();
-		
-	}
+	output_hscrol = atari_antic_hscrol;
+	if (atari_pm_graphics_enabled) {		
 	
-	/* And finally, missiles */
-
-
+		// Horizontal scroll shifts the players RIGHT to compensate for
+		// the fact that the displayed line will be shifted LEFT when
+		// the video signal is generated.  
+		render_pm_graphics(output_hscrol);		
+	}
 
 	/* Final housekeeping */
 
@@ -368,24 +394,18 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 		chset_line = 0;
 	}
 
-
-
-/*	for (int i=0; i<48; i++) {
-		uint8_t data = atari_source_data[atari_source_line_ofs++];
-		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
-		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
-	} */
-
-
 	/* There are two ways to render the display - the fast way using 32-bit copies,
 	   and the slow way using 8-bit copies.  The fast way is much preferable since
 	   it provides ample CPU time for other stuff like P/M graphics and sound 
 	   generation.  The slow way is temporarily included for debugging purposes. */
 	uint32_t* colorptr;
 	uint32_t* dest = (uint32_t*)(&output_buffer[video_start]);
+
 	
+	/* This is where horizontal fine scroll is implemented.
+	   Instead of starting at i=0, start at i=HSCROL and continue to i=HSCROL+192 */
 	int colorptr_ofs = 0;
-	for (int i=0; i<192; i++) {
+	for (int i=output_hscrol; i<output_hscrol+192; i++) {
 		*(dest++) = atari_signal_palette[user_line[i]];
 	}
 
@@ -408,6 +428,7 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 void worst_case_test() {
 	atari_mode_line = 8;
+	atari_antic_hscrol = 2;
 
 	// Worst c
 	int width = 4;
