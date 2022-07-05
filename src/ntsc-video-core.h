@@ -90,7 +90,7 @@ extern volatile int in_vblank;
 #define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
 
 // VIDEO_START *MUST* be 32-bit aligned.
-#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*20)
+#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*15)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 // The chroma phase shift needed to adjust for VIDEO_START.  This

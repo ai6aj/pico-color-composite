@@ -352,8 +352,30 @@ int atari_antic_hscrol = 0;
 // *shrug*
 int output_hscrol = 0;
 
+int antic_dma_width=40;
+int antic_dma_start=4;
+
+void set_antic_dma_width(int width) {
+	switch (width) {
+		case 32:
+			antic_dma_width = 32;
+			antic_dma_start = 8;
+			break;
+			
+		case 40:
+			antic_dma_width = 40;
+			antic_dma_start = 4;
+			break;
+			
+		case 48:
+			antic_dma_width = 48;
+			antic_dma_start = 0;
+			break;
+	}
+}
+
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
-	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
+//	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
 
 	/* Step one is to translate the DMA'd line into its bit pattern. */
 	int atari_tmp_line_ofs = atari_source_line_ofs;
@@ -367,14 +389,124 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 	uint16_t* user_line_16 = (uint16_t*)user_line;
 
-	/* Playfield graphics render first. */
-	for (int i=0; i<48; i++) {
-		uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];
-		uint8_t data = atari_8bit_charset[(chdata << 3) + chset_line];
-		user_line_16[user_line_ofs++] = (mode_patterns[data >> 4]);
-		user_line_16[user_line_ofs++] = (mode_patterns[data & 0x0F]);
+	/* Render left border. */
+	for (int i=0; i<antic_dma_start; i++) {
+		user_line_16[user_line_ofs++] = 0x0808;
+		user_line_16[user_line_ofs++] = 0x0808;
 	}
 
+	/* Playfield graphics render first. */
+	uint8_t chset_line_ofs = chset_line;
+	switch (atari_mode_line) {
+		
+		case 2:
+		for (int i=0; i<antic_dma_width; i++) {
+			uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];
+			
+			uint8_t data = atari_8bit_charset[((chdata & 0x7F) << 3) + chset_line];
+			if (chdata & 0x80) data ^= 0xFF;
+			user_line_16[user_line_ofs++] = (atari_hires_mode_patterns[data >> 4]);
+			user_line_16[user_line_ofs++] = (atari_hires_mode_patterns[data & 0x0F]);
+		}
+		chset_line++; 
+		if (chset_line == 8) {
+			atari_source_line_ofs += antic_dma_width;
+			chset_line = 0;
+		}
+		break;
+		
+
+		case 5:
+			chset_line_ofs = chset_line_ofs >> 1;
+
+		case 4:
+		
+		for (int i=0; i<antic_dma_width; i++) {
+			uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];			
+			uint8_t inv_select = (chdata & 0x80) >> 3;
+			
+			chdata &= 0x7F;
+			
+			uint8_t data = atari_8bit_charset[(chdata << 3) + chset_line_ofs];
+
+			user_line_16[user_line_ofs++] = atari_fourcolor_mode_patterns[inv_select + (data >> 4)];
+			user_line_16[user_line_ofs++] = atari_fourcolor_mode_patterns[inv_select + (data & 0xF)];				
+		}
+		
+		chset_line++; 
+		if ((atari_mode_line == 4 && chset_line == 8) || (atari_mode_line == 5 && chset_line == 16)) {
+			atari_source_line_ofs += antic_dma_width;
+			chset_line = 0;
+		}
+
+		break;
+
+		case 7:
+			chset_line_ofs = chset_line_ofs >> 1;
+
+		case 6:
+		
+		for (int i=0; i<antic_dma_width/2; i++) {
+			uint8_t chdata = atari_source_data[atari_tmp_line_ofs++];			
+			uint8_t fgcolor = (chdata & 0xC0) >> 4;
+			
+			chdata &= 0x3F;
+			uint8_t data = atari_8bit_charset[(chdata << 3) + chset_line_ofs];
+
+			uint8_t fgdata = atari_lores_char_patterns[fgcolor];
+			for (int x=0; x<4; x++) {
+				user_line_16[user_line_ofs++] = atari_lores_char_patterns[fgcolor + ((data & 0xC0) >> 6)];
+				data <<= 2;
+			}
+		}
+
+		chset_line++; 
+		if ((atari_mode_line == 6 && chset_line == 8) || (atari_mode_line == 6 && chset_line == 16)) {
+			atari_source_line_ofs += antic_dma_width/2;
+			chset_line = 0;
+		}
+		break;
+
+		// Only difference between Mode B and Mode C is how often the DMA buffer is 
+		// refreshed (every other line in D, every line in E)
+		case 0x0B:
+		case 0x0C:
+		for (int i=0; i<antic_dma_width/2; i++) {
+			uint8_t data = atari_source_data[atari_tmp_line_ofs++];
+			user_line_16[user_line_ofs++] = atari_twocolor_mode_patterns[data >> 6];
+			user_line_16[user_line_ofs++] = atari_twocolor_mode_patterns[data & 0x30 >> 4];
+			user_line_16[user_line_ofs++] = atari_twocolor_mode_patterns[data & 0xC0 >> 2];
+			user_line_16[user_line_ofs++] = atari_twocolor_mode_patterns[data & 3];
+		}
+		break;
+
+		
+		// Only difference between Mode D and Mode E is how often the DMA buffer is 
+		// refreshed (every other line in D, every line in E)
+		case 0x0D:
+		case 0x0E:
+		for (int i=0; i<antic_dma_width; i++) {
+			uint8_t data = atari_source_data[atari_tmp_line_ofs++];
+			user_line_16[user_line_ofs++] = atari_fourcolor_mode_patterns[data >> 4];
+			user_line_16[user_line_ofs++] = atari_fourcolor_mode_patterns[data & 0xF];				
+		}
+		break;
+		
+		case 0x0F:
+		for (int i=0; i<antic_dma_width; i++) {
+			uint8_t data = atari_source_data[atari_tmp_line_ofs++];
+			user_line_16[user_line_ofs++] = (atari_hires_mode_patterns[data >> 4]);
+			user_line_16[user_line_ofs++] = (atari_hires_mode_patterns[data & 0x0F]);
+		}
+		break;
+
+	}
+
+	/* Render right border */
+	for (int i=antic_dma_start+antic_dma_width; i<48; i++) {
+		user_line_16[user_line_ofs++] = 0x0808;
+		user_line_16[user_line_ofs++] = 0x0808;
+	}
 
 	/* Player Graphics render next. */
 	output_hscrol = atari_antic_hscrol;
@@ -388,11 +520,6 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 	/* Final housekeeping */
 
-	chset_line++; 
-	if (chset_line == 8) {
-		atari_source_line_ofs += 48;
-		chset_line = 0;
-	}
 
 	/* There are two ways to render the display - the fast way using 32-bit copies,
 	   and the slow way using 8-bit copies.  The fast way is much preferable since
@@ -427,12 +554,12 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 }
 
 void worst_case_test() {
-	atari_mode_line = 8;
-	atari_antic_hscrol = 2;
+	atari_mode_line = 0x2;
+	atari_antic_hscrol = 0;
 
 	// Worst c
 	int width = 4;
-	atari_pm_graphics_enabled = 1;
+	atari_pm_graphics_enabled = 0;
 	atari_player_bitmaps[0] = 0xFF;	
 	atari_player_widths[0] = width;
 	atari_player_offsets[0] = 64;
@@ -481,7 +608,7 @@ void worst_case_test() {
 
 	
 	for (int i=0; i<2048; i++) {
-		atari_source_data[i] = i & 0x7F;
+		atari_source_data[i] = i & 0xFF;
 	}	
 }
 
@@ -492,6 +619,7 @@ void init_atari_8bit_video_core() {
 	atari_missile_bitmap = 0;
 	clear_all_collisions();
 	atari_pm_graphics_enabled = 0;
+	set_antic_dma_width(40);
 	
 	for (int i=0; i<4; i++) {
 		atari_player_bitmaps[i] = 0;
@@ -501,6 +629,10 @@ void init_atari_8bit_video_core() {
 		atari_missile_offsets[i] = 0;
 	}
 
+	for (int i=0; i<16; i++) {
+		setAtariColorRegister(i,palette,0);
+	}
+	
 	atari_mode_line=8;
 	set_user_render_raw(atari_render);
 	set_user_vblank(atari_vblank);

@@ -146,25 +146,49 @@ const uint32_t atari_8bit_fullColors[] = {
 	but on little-endian CPUs you need to write
 	things in the actual byte order e.g. 0x0201.
 */
-const uint16_t atari_fourcolor_mode_patterns[16] = {
+const uint16_t atari_fourcolor_mode_patterns[32] = {
+		0x0808,
+		0x0408,
+		0x0508,
+		0x0608,
+		0x0804,
 		0x0404,
 		0x0504,
 		0x0604,
-		0x0704,
+		0x0805,
 		0x0405,
 		0x0505,
 		0x0605,
-		0x0705,
+		0x0806,
 		0x0406,
 		0x0506,
-		0x0606,
-		0x0706,
+		0x0606,		
+		0x0808,
+		0x0408,
+		0x0508,
+		0x0708,
+		0x0804,
+		0x0404,
+		0x0504,
+		0x0704,
+		0x0805,
+		0x0405,
+		0x0505,
+		0x0705,
+		0x0807,
 		0x0407,
 		0x0507,
-		0x0607,
-		0x0707
+		0x0707		
 	};
-	
+
+const uint16_t atari_twocolor_mode_patterns[32] = {
+	0x0808,
+	0x0408,
+	0x0804,
+	0x0404
+};
+
+
 /* Hires modes always have the same chroma signal
    but two different luma values.  We emulate 
    this by automatically generating special
@@ -189,5 +213,28 @@ uint16_t atari_hires_mode_patterns[16] = {
 		0x0E0F,
 		0x0F0F,
  };
+
+uint16_t atari_lores_char_patterns[16] = {
+		0x0808,
+		0x0408,
+		0x0804,
+		0x0404,
+		
+		0x0808,
+		0x0508,
+		0x0805,
+		0x0505,
+		
+		0x0808,
+		0x0608,
+		0x0806,
+		0x0606,
+
+		0x0808,
+		0x0708,
+		0x0807,
+		0x0707,
+
+};
 
 #endif
