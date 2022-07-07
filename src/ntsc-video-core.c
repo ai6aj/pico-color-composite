@@ -74,7 +74,7 @@ volatile int in_vblank = 0;
 
 /*
 	Set the total line width, in color clocks.
-	ALTERNATE_COLORBURST_PHASE will generate proper 262.5
+	ALTERNATE_COLORBURST_PHASE will generate proper 227.5
 	color clock lines but is only partially supported at
 	the moment (and doesn't seem to be necessary.)
 	
@@ -84,7 +84,7 @@ volatile int in_vblank = 0;
 */
 
 #ifdef ALTERNATE_COLORBURST_PHASE
-#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
+#define LINE_WIDTH (227*SAMPLES_PER_CLOCK+(SAMPLES_PER_CLOCK/2))
 #else 
 #define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
 #endif 
@@ -594,7 +594,9 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
     irq_set_enabled(DMA_IRQ_0, true);
 
 	// Set the clock divisor
-		
+	// This may be subtly wrong, as we should really be matching the # of color clocks
+	// we want to spit out to ensure we're perfectly matched to our luma and chroma 
+	// signal
 	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (NTSC_COLORBURST_FREQ*SAMPLES_PER_CLOCK);
 	
 	uint16_t div_int = (uint16_t)PIO_clkdiv;

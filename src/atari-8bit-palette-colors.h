@@ -181,7 +181,23 @@ const uint16_t atari_fourcolor_mode_patterns[32] = {
 		0x0707		
 	};
 
-const uint16_t atari_twocolor_mode_patterns[32] = {
+const uint8_t mode_3_chline_xlat[] = {
+		0,0,2,3,4,5,6,7,0,1
+};
+
+const uint16_t atari_mode_9_patterns[] = {
+	0x0808,
+	0x0404
+};
+
+const uint16_t atari_modes_8_A_patterns[] = {
+		0x0808,
+		0x0101,
+		0x0202,
+		0x0303
+};
+
+const uint16_t atari_twocolor_mode_patterns[4] = {
 	0x0808,
 	0x0408,
 	0x0804,

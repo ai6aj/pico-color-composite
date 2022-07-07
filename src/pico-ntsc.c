@@ -10,7 +10,7 @@
 #include "atari-8bit-video-core.h"
 
 
-int main() {
+int __not_in_flash_func(main)() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
     stdio_init_all();
 	

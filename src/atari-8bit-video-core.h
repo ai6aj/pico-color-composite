@@ -5,8 +5,18 @@
 
 extern display_list_t atari_8bit_display_list[];
 void init_atari_8bit_video_core();
+uint8_t antic_read_memory(uint16_t addr);
 
 void set_player_hpos(uint8_t player,uint8_t hpos);
+
+void set_player_data(uint8_t player,uint8_t data);
+
+void set_missile_data(uint8_t data);
+
+
+// This will be reset to 0 by the video core every HSYNC
+extern volatile uint8_t atari_hsync_flag;
+extern volatile uint8_t atari_vblank_flag;
 
 /*
 	TODO
