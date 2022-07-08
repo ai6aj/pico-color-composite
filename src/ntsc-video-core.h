@@ -1,5 +1,8 @@
 #ifndef __NTSC_VIDEO_CORE_H__
 #define __NTSC_VIDEO_CORE_H__
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 #include <stdlib.h>
@@ -52,7 +55,7 @@ float get_video_core_load();
  FRAMEBUFFER STUFF
  **********************************/
 extern uint8_t palette[256][4];
-extern uint8_t framebuffer[200][160];
+extern uint8_t **framebuffer; // [200][160];
 
 
 void drawline (int x0, int y0, int x1, int y1, uint8_t color);
@@ -165,6 +168,10 @@ typedef void (user_vblank_func_t)();
 
 void set_user_render_raw(user_render_raw_func_t);
 void set_user_vblank(user_vblank_func_t);
+
+#ifdef __cplusplus
+}
+#endif
 
 
 #endif

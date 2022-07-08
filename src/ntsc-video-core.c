@@ -15,7 +15,8 @@ int irq_count = 0;
  FRAMEBUFFER STUFF
  **********************************/
 uint8_t palette[256][4];
-uint8_t framebuffer[200][160];
+
+uint8_t **framebuffer; // [200][160];
 
 
 void drawline (int x0, int y0, int x1, int y1, uint8_t color)

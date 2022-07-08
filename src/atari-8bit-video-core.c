@@ -79,6 +79,10 @@ display_list_t atari_8bit_display_list[] = {
 		
 */
 uint8_t atari_pm_graphics_enabled = 1;
+
+void set_pm_graphics_enabled(int enabled) {
+	atari_pm_graphics_enabled = enabled ? 1 : 0;
+}
 // uint8_t atari_source_data[2048];
 
 int atari_source_data_base = 4096;
