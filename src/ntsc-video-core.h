@@ -105,7 +105,7 @@ extern volatile int in_vblank;
 // before turning on the video display.  This 
 // is needed to give the TV time to lock the 
 // VBLANK signal.
-#define STARTUP_FRAME_DELAY 150
+#define STARTUP_FRAME_DELAY 180
 
 /*
 	Set the total line width, in color clocks.

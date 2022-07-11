@@ -67,11 +67,6 @@ volatile int in_vblank = 0;
 #define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 #define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
-// The amount of time to display a black screen
-// before turning on the video display.  This 
-// is needed to give the TV time to lock the 
-// VBLANK signal.
-#define STARTUP_FRAME_DELAY 150
 
 /*
 	Set the total line width, in color clocks.
@@ -84,11 +79,6 @@ volatile int in_vblank = 0;
 	but is just fine with 226 color clocks.  
 */
 
-#ifdef ALTERNATE_COLORBURST_PHASE
-#define LINE_WIDTH (227*SAMPLES_PER_CLOCK+(SAMPLES_PER_CLOCK/2))
-#else 
-#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
-#endif 
 
 void setPaletteRaw(int num,float a,float b,float c,float d) {
 	palette[num][0] = BLACK_LEVEL+(uint8_t)(a*LUMA_SCALE);
