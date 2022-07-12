@@ -23,7 +23,7 @@ void set_pm_graphics_enabled(int enabled);
 // void antic_set_block_ram(int block,uint8_t* where);
 
 void set_next_antic_mode(uint8_t mode);
-void set_next_antic_graphics_ptr(uint8_t* ptr);
+void set_antic_graphics_ptr(uint8_t* ptr);
 void set_next_antic_character_ptr(uint8_t* ptr);
 
 // This will be reset to 0 by the video core every HSYNC

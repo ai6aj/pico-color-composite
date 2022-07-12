@@ -35,7 +35,8 @@ float get_video_core_load();
 //
 // #define SYS_CLOCK_KHZ	120000
 // #define SYS_CLOCK_KHZ	133000
-#define SYS_CLOCK_KHZ	157500
+//#define SYS_CLOCK_KHZ	157500
+#define SYS_CLOCK_KHZ	200000
 
 // The phase of the generated colorburst signal.  
 // Old video hardware had a pot you could adjust to tune the
@@ -105,7 +106,7 @@ extern volatile int in_vblank;
 // before turning on the video display.  This 
 // is needed to give the TV time to lock the 
 // VBLANK signal.
-#define STARTUP_FRAME_DELAY 180
+#define STARTUP_FRAME_DELAY 1
 
 /*
 	Set the total line width, in color clocks.
@@ -121,7 +122,7 @@ extern volatile int in_vblank;
 #ifdef ALTERNATE_COLORBURST_PHASE
 	#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
 #else 
-	#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
+	#define LINE_WIDTH (227*SAMPLES_PER_CLOCK)
 #endif 
 
 void setPaletteRaw(int num,float a,float b,float c,float d);
