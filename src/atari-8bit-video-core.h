@@ -12,10 +12,15 @@ void init_atari_8bit_video_core();
 
 uint8_t antic_read_memory(uint16_t addr);
 void set_player_hpos(uint8_t player,uint8_t hpos);
+void set_missile_hpos(uint8_t player,uint8_t hpos);
+void set_player_width(uint8_t player,uint8_t hpos);
+void set_missile_widths(uint8_t width);
 
 void set_player_data(uint8_t player,uint8_t data);
 
 void set_missile_data(uint8_t data);
+
+void setAtariColorRegister(int num,uint8_t palette[][4],int palette_num);
 
 void set_pm_graphics_enabled(int enabled);
 
