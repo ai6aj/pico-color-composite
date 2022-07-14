@@ -21,6 +21,7 @@ void set_player_data(uint8_t player,uint8_t data);
 void set_missile_data(uint8_t data);
 
 void setAtariColorRegister(int num,uint8_t palette[][4],int palette_num);
+void set_color_register(uint8_t num,uint8_t val,int cycle);
 
 void set_pm_graphics_enabled(int enabled);
 

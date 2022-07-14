@@ -116,6 +116,19 @@ uint32_t atari_signal_palette[16];
 	F		Bit pattern 11 in hi-res mode
 */
 
+uint32_t color_updates_0[64];
+uint32_t color_updates_1[64];
+
+volatile int color_update_ofs = 0;
+volatile uint32_t* color_updates = color_updates_0;
+
+#define COLOR_REGISTER_CYCLE_OFFSET	63
+void set_color_register(uint8_t num,uint8_t val,int cycle) {
+	uint16_t exec_cycle = cycle*2;
+	if (exec_cycle < COLOR_REGISTER_CYCLE_OFFSET) exec_cycle = 0;
+		else exec_cycle = exec_cycle - COLOR_REGISTER_CYCLE_OFFSET;
+	color_updates[color_update_ofs++] = (((uint32_t)num) << 24) + (((uint32_t)val | 1) << 16) + (uint32_t)exec_cycle;
+}
 
 void setAtariColorRegister(int num,uint8_t palette[][4],int palette_num) {
 	uint32_t* colorptr;
@@ -215,7 +228,7 @@ void set_player_width(uint8_t player,uint8_t hpos) {
 	atari_player_widths[player & 0x3] = hpos;	
 }
 
-void set_missile_width(uint8_t width) {
+void set_missile_widths(uint8_t width) {
 	atari_missile_width = width;		
 }
 
@@ -387,7 +400,7 @@ static inline void render_pm_graphics(uint8_t hscrol) {
 	next larger playfield size, unless it is already using a wide playfield.
 */
 
-int antic_use_gtia_mode = 1;
+int antic_use_gtia_mode = 0;
 int atari_antic_hscrol = 0;
 
 // Should always be 0, but using this variable
@@ -444,6 +457,14 @@ volatile uint8_t atari_hsync_flag = 0;
 
 static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8_t* output_buffer) {
 //	const uint16_t* mode_patterns = atari_hires_mode_patterns; //atari_fourcolor_mode_patterns;
+
+	int color_updates_to_apply = color_update_ofs;	
+	uint32_t* our_color_updates = (uint32_t*)color_updates;
+	color_updates = (color_updates == color_updates_0) ?
+					color_updates_1 : color_updates_0;
+					
+	color_update_ofs = 0;
+	
 
 
 	atari_mode_line = antic_next_mode;
@@ -691,13 +712,13 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 
 	/* Player Graphics render next. */
 	output_hscrol = atari_antic_hscrol;
-	if (atari_pm_graphics_enabled) {		
+/*	if (atari_pm_graphics_enabled) {		
 	
 		// Horizontal scroll shifts the players RIGHT to compensate for
 		// the fact that the displayed line will be shifted LEFT when
 		// the video signal is generated.  
 		render_pm_graphics(output_hscrol);		
-	}
+	} */
 
 	/* Final housekeeping */
 
@@ -712,7 +733,42 @@ static void __not_in_flash_func(atari_render)(uint line, uint video_start, uint8
 	/* This is where horizontal fine scroll is implemented.
 	   Instead of starting at i=0, start at i=HSCROL and continue to i=HSCROL+192 */
 	int colorptr_ofs = 0;
+
+	uint32_t next_update_to_apply;
+	int next_update_to_apply_time = 255;
+	int color_updates_to_apply_idx = 0;
+		
+		
+	if (color_updates_to_apply) {
+		next_update_to_apply = our_color_updates[color_updates_to_apply_idx++];
+		next_update_to_apply_time = (next_update_to_apply & 0xFF);
+
+		while (next_update_to_apply_time == 0) {
+			setAtariColorRegister(next_update_to_apply >> 24,palette,(next_update_to_apply >> 16) & 0xFF);
+
+			if (color_updates_to_apply_idx >= color_updates_to_apply) {
+				next_update_to_apply_time = 255;
+			} else {
+				next_update_to_apply = our_color_updates[color_updates_to_apply_idx++];
+				next_update_to_apply_time = (next_update_to_apply & 0xFF);				
+			}
+		}
+	}
+	
 	for (int i=output_hscrol; i<output_hscrol+192; i++) {
+
+		if (next_update_to_apply_time == i) {
+			setAtariColorRegister(next_update_to_apply >> 24,palette,(next_update_to_apply >> 16) & 0xFF);
+			
+			next_update_to_apply = our_color_updates[color_updates_to_apply_idx++];
+			next_update_to_apply_time = (next_update_to_apply & 0xFF);
+
+			if (color_updates_to_apply_idx > color_updates_to_apply) {
+				next_update_to_apply_time = 255;
+			}
+		}
+
+
 		*(dest++) = atari_signal_palette[user_line[i]];
 	}
 
@@ -802,8 +858,8 @@ void worst_case_test() {
 	setAtariColorRegister(ATARI_PM_COLOR_3,palette,32+15);
 	
 	setAtariColorRegister(ATARI_PF_COLOR_0,palette,193);
-	setAtariColorRegister(ATARI_PF_COLOR_1,palette,128);
-	setAtariColorRegister(ATARI_PF_COLOR_2,palette,0x61);
+	setAtariColorRegister(ATARI_PF_COLOR_1,palette,0x8F);
+	setAtariColorRegister(ATARI_PF_COLOR_2,palette,0x80);
 	setAtariColorRegister(ATARI_PF_COLOR_3,palette,0x20);
 
 	
