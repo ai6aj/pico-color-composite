@@ -36,7 +36,7 @@ float get_video_core_load();
 // #define SYS_CLOCK_KHZ	120000
 // #define SYS_CLOCK_KHZ	133000
 //#define SYS_CLOCK_KHZ	157500
-#define SYS_CLOCK_KHZ	200000
+#define SYS_CLOCK_KHZ	266000
 
 // The phase of the generated colorburst signal.  
 // Old video hardware had a pot you could adjust to tune the
@@ -56,7 +56,6 @@ float get_video_core_load();
  FRAMEBUFFER STUFF
  **********************************/
 extern uint8_t palette[256][4];
-extern uint8_t **framebuffer; // [200][160];
 
 
 void drawline (int x0, int y0, int x1, int y1, uint8_t color);
@@ -106,7 +105,7 @@ extern volatile int in_vblank;
 // before turning on the video display.  This 
 // is needed to give the TV time to lock the 
 // VBLANK signal.
-#define STARTUP_FRAME_DELAY 1
+#define STARTUP_FRAME_DELAY 120
 
 /*
 	Set the total line width, in color clocks.
@@ -114,15 +113,12 @@ extern volatile int in_vblank;
 	color clock lines but is only partially supported at
 	the moment (and doesn't seem to be necessary.)
 	
-	Note that a lot of old equipment uses 228 color clock
-	lines; a lot of new equipment doesn't sync well to this
-	but is just fine with 226 color clocks.  
 */
 
 #ifdef ALTERNATE_COLORBURST_PHASE
 	#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
 #else 
-	#define LINE_WIDTH (227*SAMPLES_PER_CLOCK)
+	#define LINE_WIDTH (228*SAMPLES_PER_CLOCK)
 #endif 
 
 void setPaletteRaw(int num,float a,float b,float c,float d);
@@ -158,6 +154,8 @@ void setPaletteRGB(int num,uint8_t r, uint8_t g, uint8_t b);
 typedef unsigned int display_list_t;
 extern display_list_t sample_display_list[];
 
+void set_display_list(display_list_t *display_list);
+
 // Our initial display list is just a black display.  This allows the TV time to 
 // lock VBLANK.
 extern volatile int startup_frame_counter;
@@ -167,8 +165,14 @@ typedef unsigned int display_list_t;
 typedef void (user_render_raw_func_t)(uint, uint, uint8_t*);
 typedef void (user_vblank_func_t)();
 
+// Called back on every new line, with line #
+typedef void (user_new_line_func_t)(uint);
+typedef void (user_video_core_loop_func_t)(void);
+
+void set_user_new_line_callback(user_new_line_func_t);
 void set_user_render_raw(user_render_raw_func_t);
 void set_user_vblank(user_vblank_func_t);
+void set_user_video_core_loop(user_video_core_loop_func_t);
 
 #ifdef __cplusplus
 }

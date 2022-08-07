@@ -191,10 +191,10 @@ const uint16_t atari_mode_9_patterns[] = {
 };
 
 const uint16_t atari_modes_8_A_patterns[] = {
+		0x0808,
 		0x0404,
 		0x0505,
-		0x0606,
-		0x0707
+		0x0606
 };
 
 const uint16_t atari_twocolor_mode_patterns[4] = {

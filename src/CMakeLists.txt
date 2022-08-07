@@ -1,7 +1,7 @@
 add_executable($ENV{PICO_PROJECT_NAME}
         $ENV{PICO_PROJECT_NAME}.c
 		ntsc-video-core.c
-		atari-8bit-video-core.c
+		framebuffer.c
         )
 
 pico_generate_pio_header($ENV{PICO_PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/$ENV{PICO_PROJECT_NAME}.pio)

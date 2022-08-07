@@ -15,25 +15,6 @@ int irq_count = 0;
  FRAMEBUFFER STUFF
  **********************************/
 uint8_t palette[256][4];
-
-uint8_t **framebuffer; // [200][160];
-
-
-void drawline (int x0, int y0, int x1, int y1, uint8_t color)
-{
-  int dx =  abs (x1 - x0), sx = x0 < x1 ? 1 : -1;
-  int dy = -abs (y1 - y0), sy = y0 < y1 ? 1 : -1; 
-  int err = dx + dy, e2; /* error value e_xy */
- 
-  for (;;){  /* loop */
-	framebuffer[y0][x0] = color; // putpixel(x,y,7);
-    if (x0 == x1 && y0 == y1) break;
-    e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x0 += sx; } /* e_xy+e_x > 0 */
-    if (e2 <= dx) { err += dx; y0 += sy; } /* e_xy+e_y < 0 */
-  }
-}
-
 volatile int in_vblank = 0;
 
 /*
@@ -193,8 +174,8 @@ uint8_t black_line_2[LINE_WIDTH];
 
 uint8_t* black_lines[2] = {black_line,black_line_2 };
 
-uint8_t pingpong_line_0[LINE_WIDTH];
-uint8_t pingpong_line_1[LINE_WIDTH];
+uint8_t __scratch_x("ntsc") pingpong_line_0[LINE_WIDTH];
+uint8_t __scratch_y("ntsc") pingpong_line_1[LINE_WIDTH];
  
 uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
@@ -328,6 +309,11 @@ display_list_t startup_display_list[] = { DISPLAY_LIST_WVB, 0 };
 display_list_t* display_list_ptr = startup_display_list;
 display_list_t* next_display_list = sample_display_list;
 
+void set_display_list(display_list_t *display_list) {
+	next_display_list = display_list;
+}
+
+
 display_list_t  display_list_current_cmd = 0;
 display_list_t display_list_lines_remaining = 0;
 display_list_t display_list_ofs = 0;
@@ -339,7 +325,7 @@ display_list_t display_list_ofs = 0;
 */
 int framebuffer_line_offset = 35;
 
-
+/*
 uint8_t user_line[320];
 
 
@@ -347,6 +333,7 @@ static uint8_t* __not_in_flash_func(user_render_ex)(uint line) {
 	for (int i=0; i<160; i++) { user_line[i] = framebuffer[line-framebuffer_line_offset][i]; };
 	return user_line;
 }
+*/
 
 int frcount = 0;
 
@@ -370,6 +357,7 @@ static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_rende
 
 user_render_raw_func_t	*user_render_raw_func = NULL;
 user_vblank_func_t *user_vblank_func = NULL;
+user_new_line_func_t *user_new_line_func = NULL;
 
 void set_user_render_raw(user_render_raw_func_t *f) {
 	user_render_raw_func = f;
@@ -378,6 +366,12 @@ void set_user_render_raw(user_render_raw_func_t *f) {
 void set_user_vblank(user_vblank_func_t *f) {
 	user_vblank_func = f;
 }
+
+// Typically used for audio output
+void set_user_new_line_callback(user_new_line_func_t *f) {
+	user_new_line_func = f;
+}
+
 
 static void __not_in_flash_func(user_render_160)(uint line, uint8_t* dest,user_render_func_t user_func) {
 		uint8_t* sourceline = user_func(line);
@@ -398,6 +392,7 @@ static void __not_in_flash_func(user_render_160)(uint line, uint8_t* dest,user_r
 }
 
 user_render_func_t user_render_func = NULL; 
+// Called back on every new line, with line #
 
 /*
 
@@ -405,37 +400,26 @@ user_render_func_t user_render_func = NULL;
 	
 */
 
-static void __not_in_flash_func(make_video_line)(uint line, uint8_t* dest) {
-	
-	//	uint8_t* nextline = (line & 1) ? pingpong_lines[0] : pingpong_lines[1];
-		uint8_t* sourceline = framebuffer[line-framebuffer_line_offset];
-		uint8_t* colorptr;
-		int ofs = VIDEO_START;
-		for (int i=0; i<160; i++) {
-			colorptr = palette[sourceline[i]];
-		
-			// The compiler will optimize this		
-			dest[ofs] = colorptr[0];
-			dest[ofs+1] = colorptr[1];
-			dest[ofs+2] = colorptr[2];
-			dest[ofs+3] = colorptr[3];
-			
-			ofs += 4;
-		}
-}
-
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	
 	// Set the next DMA access point and reset the interrupt
     dma_channel_set_read_addr(dma_channel, next_dma_line, true);
     dma_hw->ints0 = 1 << dma_channel;		
 
+	// User line callback goes here so we don't get a bunch
+	// of jitter in audio.
+	if (user_new_line_func != NULL) { user_new_line_func(line); }
+
+
 	// We should ALWAYS set the read address to whatever we decided it should be
 	// last time, unless we're in vblank.  Then we determine what the next DMA line is.
 	// This way we don't get an extra line(s) when switching between black lines and 
 	// framebuffer lines.
 
+	
 
+
+	// VBLANK should start on line 258.
 	if (line >= 262) {
 		in_vblank = 1;
 		
@@ -484,21 +468,12 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 					// reset by VBLANK
 					display_list_lines_remaining = 2;
 					// Otherwise it's a black line
-					
+
+				default:
 				case DISPLAY_LIST_BLACK_LINE:
 					next_dma_line = black_lines[line & 1];
 					break;
-					
-				case DISPLAY_LIST_FRAMEBUFFER:
-				    //next_dma_line = black_lines[line & 1];
-					next_dma_line = pingpong_lines[line & 1];
-			
-					// Now for the fun, we need to rasterize the next DMA line before 
-					// the current line completes
-					make_video_line(line,pingpong_lines[line & 1]);
-//					next_dma_line = vblank_line;
-					break;
-					
+										
 				case DISPLAY_LIST_USER_RENDER:
 					next_dma_line = pingpong_lines[line & 1];
 					user_render(line,pingpong_lines[line & 1],user_render_func);
@@ -607,6 +582,8 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	Main thread
    -------------------------------------*/
 
+user_video_core_loop_func_t *user_video_core_loop_func = NULL; 
+
 volatile uint32_t current_idle_count = -1;
 volatile uint32_t unloaded_idle_count = 0;
 float get_video_core_load() {
@@ -614,9 +591,12 @@ float get_video_core_load() {
 	return 1-(float)(current_idle_count)/(float)(unloaded_idle_count);
 }
 
+void set_user_video_core_loop(user_video_core_loop_func_t f) {
+	user_video_core_loop_func = f;
+}
+
+
 void ntsc_video_core() {
-	init_atari_8bit_video_core();
-	
 	
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &ntsc_composite_program);
@@ -627,7 +607,11 @@ void ntsc_video_core() {
     start_video(pio, 0, offset, FIRST_GPIO_PIN, DAC_BITS);
 	
 	uint32_t counter = 0;
-	
+
+	if (user_video_core_loop_func != NULL) {
+		user_video_core_loop_func();
+	}
+		
 	while (1) {
 			while (!in_vblank) counter++;
 			if (startup_frame_counter == 0) {

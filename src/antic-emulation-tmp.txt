@@ -1,0 +1,261 @@
+		/* 
+			Using neatly packed values (i.e. 0,1,2,3,...) instead of a char 
+			in the switch() statement provides only a miniscule (~0.5%) speedup and isn't
+			worth the effort.
+		   
+			Using computed GOTOs (https://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html)
+			could help in a pinch, at the expense of portability and maintainability.
+		*/
+
+		if (modeline_ofs == 0) {
+				// When this resets to 0, we've hit HSYNC and can proceed.
+				while (atari_hsync_flag);			
+				
+				// Turn the flag back on				
+				atari_hsync_flag = 1;
+
+				// Reset counters
+				modeline_ofs = 0;
+				antic_dma_offset=0;
+				player_dma_num = 0;
+				
+				// If STA WSYNC was executed the CPU is in a HOLD state.
+				// Calling cpu_unhold() will resume execution, or do nothing
+				// if the CPU wasn't held.
+				cpu_unhold();
+				
+				if (atari_vblank_flag == 0) {					
+					antic_in_vblank = true;
+					
+					antic_display_list_offset = 0;
+					if (antic_nmien & NMI_VBI) {
+						antic_nmist |= NMI_VBI;
+						// printf("Trigger VBLANK\n");
+						cpu_nmi();
+						player_dma_addr = player_dma_base + player_dma_base_ofs;
+					}
+//					cpu_irq();
+
+
+					atari_vblank_flag = 1;
+					antic_waiting_for_vblank = 0;
+					
+					// This will hold display list processing for 4 lines
+					antic_repeat_modeline_countdown_accum = 4;
+					set_next_antic_mode(0);
+					
+
+
+					int c;
+					while ((c=getchar_timeout_us(0)) >= 0) {
+						stuff_atari_keyboard(c);
+					};
+					
+					unstuff_atari_keyboard();
+
+//					printf("%d,%d\n",keyboard_buffer_start,keyboard_buffer_end);
+				} 
+
+				if (pokey_interrupt_pending) {
+					--pokey_interrupt_wait_count;
+					if (pokey_interrupt_wait_count == 0) {
+						cpu_irq();
+						pokey_interrupt_pending = 0;
+					}					
+				}
+				
+				if (antic_repeat_modeline_countdown_accum) {
+					MODELINE = MODELINE_0000;
+					antic_repeat_modeline_countdown_accum--;
+				}
+				else if (antic_waiting_for_vblank) {
+					set_next_antic_mode(0);
+				}
+				else {
+					antic_in_vblank = false;
+					antic_instruction=antic_read_memory(antic_display_list_base+antic_display_list_offset);
+					
+					// Skip over the 'I' instruction at the beginning of the modeline (it's a no-op anyway)					
+					modeline_ofs++;
+					cycles++;
+					
+					// printf("ANTIC: read=%02X, addr=%02X\n",antic_instruction,antic_display_list_base+antic_display_list_offset);
+					antic_display_list_offset++;
+					antic_display_list_offset &= ANTIC_DISPLAY_LIST_OFFSET_MASK;
+					
+					uint8_t antic_mode_nibble = antic_instruction & 0x0F;
+					uint8_t antic_instruction_hi_nibble = antic_instruction & 0xF0;
+					uint8_t antic_addr_lo, antic_addr_hi;
+					
+					if (antic_mode_nibble < 2) {
+						// Either way we're producing a blank line....
+						MODELINE = getModelineTiming(0,MODE_NORMAL,0,0);
+						set_next_antic_mode(0);
+						antic_mode = 0;
+						
+						if (antic_mode_nibble == 0) {
+							// We want blank lines, set the repeat count.
+							antic_repeat_modeline_countdown_accum = ((antic_instruction_hi_nibble & 0x70) >> 4);
+							
+							// DLI is allowed in blank line instructions
+							if (antic_instruction_hi_nibble & 0x80) {
+								do_dli_at_missile = true;
+							}
+						}
+						else {
+							antic_addr_lo = antic_read_memory(antic_display_list_base+antic_display_list_offset);
+							antic_display_list_offset++;
+							antic_addr_hi = antic_read_memory(antic_display_list_base+antic_display_list_offset);
+							antic_display_list_offset++;
+							if (antic_instruction_hi_nibble & 0x40) {
+								antic_waiting_for_vblank = 1;
+								antic_display_list_base = (uint16_t)antic_addr_hi*256+antic_addr_lo;
+								antic_display_list_offset = 0;
+							}
+							else {
+								antic_display_list_base = (uint16_t)antic_addr_hi*256+antic_addr_lo;
+								antic_display_list_offset = 0;
+							}
+							// printf("DLIST: JMP to %04X\n",antic_display_list_base);
+						}						
+					}
+					else
+					{
+						// It's an ANTIC mode.
+						// Tell the ANTIC emulator what our next DMA pointer is.
+						// set_antic_graphics_ptr(dummy_antic_data);
+						
+						antic_mode = antic_mode_nibble;
+						
+						// set_next_antic_mode(8);	
+
+						// Do we need LMS?
+						if (antic_instruction_hi_nibble & 0x40) {
+							
+							// Yes, read the bytes.
+							antic_addr_lo = antic_read_memory(antic_display_list_base+antic_display_list_offset);
+							antic_display_list_offset++;
+//							antic_display_list_offset &= ANTIC_DISPLAY_LIST_OFFSET_MASK;
+							antic_addr_hi = antic_read_memory(antic_display_list_base+antic_display_list_offset);
+							antic_display_list_offset++;
+//							antic_display_list_offset &= ANTIC_DISPLAY_LIST_OFFSET_MASK;
+							antic_dma_read_addr = ((uint16_t)antic_addr_hi*256+(uint16_t)antic_addr_lo);
+							//printf("LMS mode %d, %02X, %02X, %04X\n",antic_mode_nibble,antic_addr_hi,antic_addr_lo,antic_dma_read_addr);
+						}
+						
+						if (antic_instruction_hi_nibble & 0x80) {
+							do_dli_at_missile = true;
+						}
+						
+						antic_repeat_modeline_countdown_accum  = antic_mode_repeat_counts[antic_mode_nibble];
+						set_next_antic_mode(antic_mode_nibble);	
+						set_antic_graphics_ptr(antic_dma_data);
+						MODELINE = getModelineTiming(antic_mode_nibble,linemode_width,0,0);
+
+						// Is it a character mode?
+						do_char_load = antic_mode_nibble & 0x8 ? false : true;
+					}						
+				}
+
+				
+				antic_line++;
+				
+				if (pm_single_line_resolution) {
+					player_dma_addr++;
+				} else if (antic_line & 1) {
+					player_dma_addr++;					
+				}
+		}
+		else if (modeline_ofs == 97 && do_dli_at_missile && antic_repeat_modeline_countdown_accum == 0 && (antic_nmien & NMI_DLI)) {
+			antic_nmist |= NMI_DLI;
+			cpu_nmi();
+			do_dli_at_missile = false;
+		}
+
+
+		switch (MODELINE[modeline_ofs]) {
+			case 'I':								
+				cycles++;
+				break;
+				
+			case 'C':
+				if (do_char_load) {
+					antic_dma_data[antic_dma_offset++] = antic_read_memory(antic_dma_read_addr++);				
+				}
+				else goto exec_cpu_cycle;
+
+				cycles++;
+				break;
+				
+			case 'G':
+				if (!do_char_load) {
+					cycles++;
+				}
+				else goto exec_cpu_cycle;
+
+				break;
+						
+			case 'M':
+/*				if (do_dli_at_missile && antic_repeat_modeline_countdown_accum==0 && (antic_nmien & NMI_DLI)) {
+					antic_nmist |= NMI_DLI;
+					cpu_nmi();
+					do_dli_at_missile = false;
+				} */
+				
+				// 'M' always happens at the end of a line so
+				// we rely on it to restart our modeline index.
+				modeline_ofs = -1;
+				if (do_missile_dma) {
+					set_missile_data(antic_read_memory(player_dma_addr+768));
+					cycles++;
+				}
+				else {
+					// REMOVE
+					cpu_hold();
+					goto exec_cpu_cycle;
+				}
+				break;
+
+			case 'P':
+				if (do_player_dma) {
+					set_player_data(player_dma_num,antic_read_memory(player_dma_addr+player_dma_num*player_dma_len));
+					player_dma_num++;
+					cycles++;
+				}
+				else {
+					goto exec_cpu_cycle;
+				}
+				break;
+				
+			case 'R':
+			case 'A':	// reads LMS address
+				++cycles;
+				break;
+
+			default:
+			exec_cpu_cycle:
+				/*
+					To implement STA WSYNC, the CPU needs cpu_hold()/cpu_unhold() 
+					functions.  cpu_hold() should save the uOp state and point the uOp
+					list to a simple HOLD uOp, which will return to the previous
+					uOp-in-progress when unhold() is called.
+					
+					How does rv=cpu_currentUopList[cpu_currentUopListOfs++]() not fail?
+					Seems like it should die after running ILD but perhaps the value
+					is written back prior to execution.  
+					
+					A big speedup can probably be obtained by making every uOp update
+					cpu_currentUopListOfs themselves rather than writing a stupid loop like 
+					this:
+
+					while ((rv=cpu_currentUopList[cpu_currentUopListOfs++]()) == 0);
+					
+					Instead, we should be able to say:
+						rv=cpu_currentUopList[cpu_currentUopListOfs++]()
+						
+					and expect that RV is NOT 0, since we're not interested in no-cycle
+					uOps... they only exist to provide correct timing for certain 
+					variable-time instructions.  Any uOp that determines that it ran 
+					in 0 cycles should proceed to execute the next uOp
+					
+				*/

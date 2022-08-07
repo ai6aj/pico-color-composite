@@ -7,22 +7,23 @@
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
-#include "atari-8bit-video-core.h"
+#include "framebuffer.h"
 
 
 int __not_in_flash_func(main)() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
     stdio_init_all();
 	
+	init_framebuffer();
 	multicore_launch_core1(ntsc_video_core);
 	
 	
-	memset(&framebuffer[100][0],2,160);
+//	memset(&framebuffer[100][0],2,160);
 
 
-	for (int i=0; i<160; i+=2) {
-		drawline(0,199,i,0,2);
-	}
+/*	for (int i=0; i<160; i+=2) {
+		drawline(0,199,i,0,0x1C);
+	} */
 
 	uint8_t tmp;
 	
