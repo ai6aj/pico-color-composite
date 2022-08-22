@@ -252,7 +252,7 @@ void make_black_line() {
 **/
 void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase) {
 	// Set everything to the blanking level
-	memset(dest,BLANKING_VAL,LINE_WIDTH);
+	memset(dest,BLACK_LEVEL,LINE_WIDTH);
 	
 	// Do the HSYNC pulse.  The front porch has been drawn
 	// by the previous DMA transfer, now provide 4.7uS
