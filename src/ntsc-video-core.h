@@ -62,7 +62,11 @@ void drawline (int x0, int y0, int x1, int y1, uint8_t color);
 extern volatile int in_vblank;
 
 /*
+	
 	Raw DAC values to generate proper levels.
+	
+	Not NTSC/PAL specific.
+	
 */
 #define SAMPLES_PER_CLOCK	4
 #define	DAC_BITS	8
@@ -70,32 +74,123 @@ extern volatile int in_vblank;
 
 #define MAX_DAC_OUT	((1 << DAC_BITS)-1)
 #define MIN_DAC_OUT	0
-#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define SYNC_VAL			MIN_DAC_OUT
-#define BLACK_LEVEL			(uint)(((47.5/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define WHITE_LEVEL			MAX_DAC_OUT
-#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
 
-/* 
-	Values needed to make timing calculations
-*/
+#define USE_NTSC
 
-#define NTSC_COLORBURST_FREQ	3579545.0
-#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
-#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+#ifdef USE_PAL
+	
+	/* PAL values. 
+	
+		These values are not to spec, but they're the only ones my cheap 
+		NTSC/PAL to USB converter will lock onto properly - the proper 
+		ones cause the entire video display to be shifted 50% to the right.  Unfortunately
+		I don't have any real PAL equipment to test with, so they'll 
+		have to do for now.
+		
+		It may be possible to sync PAL by extending the VBLANK line by 50%.
+		
+		-Jon	
+	*/
 
-/*
-	Various timings needed to generate a proper NTSC signal.
-*/
-#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+	#define BLANKING_VAL		(uint)(((45.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_HI_VAL	(uint)(((55.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_LO_VAL	(uint)(((51.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 
-// VIDEO_START *MUST* be 32-bit aligned.
-#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*15)
-#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+//	#define COLOR_BURST_HI_VAL	(uint)(((43.0/100.0)*(float)MAX_DAC_OUT)+0.5)
+//	#define COLOR_BURST_LO_VAL	(uint)(((14.0/100.0)*(float)MAX_DAC_OUT)+0.5)
+	#define SYNC_VAL			MIN_DAC_OUT
+	#define BLACK_LEVEL			(uint)(((50.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define WHITE_LEVEL			MAX_DAC_OUT
+	#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
 
+
+	/* 
+		Values needed to make timing calculations
+	*/
+
+	#define PAL_COLORBURST_MHZ		4.43361875
+	#define PAL_COLORBURST_FREQ	(PAL_COLORBURST_MHZ*1000000)
+	#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*PAL_COLORBURST_MHZ)
+	#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+
+	/*
+		Set the total line width, in color clocks.
+		ALTERNATE_COLORBURST_PHASE will generate proper 262.5
+		color clock lines but is only partially supported at
+		the moment (and doesn't seem to be necessary.)	
+	*/
+
+	#ifdef ALTERNATE_COLORBURST_PHASE
+		#define LINE_WIDTH (283*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
+	#else 
+		#define LINE_WIDTH (283*SAMPLES_PER_CLOCK)
+	#endif 
+
+	/*
+		Various timings needed to generate a proper PAL signal.
+	*/
+	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
+	#define COLOR_BURST_START	(int)(5.6/(SAMPLE_LENGTH_US)+0.5)
+	#define VBLANK_CLOCKS		(int)(27.3/(SAMPLE_LENGTH_US)+0.5)
+
+
+	// VIDEO_START *MUST* be 32-bit aligned.
+	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*50+1)
+	#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
+	#define LINES_PER_FRAME			312
+	#define COLORBURST_FREQ	PAL_COLORBURST_FREQ
+
+#else // NTSC
+
+	/* NTSC values. */
+
+	#define BLANKING_VAL		(uint)(((40.0/100.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
+	#define SYNC_VAL			MIN_DAC_OUT
+	#define BLACK_LEVEL			(uint)(((47.5/140.0)*(float)MAX_DAC_OUT)+0.5)
+	#define WHITE_LEVEL			MAX_DAC_OUT
+	#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
+
+	/* 
+		Values needed to make timing calculations
+	*/
+
+	#define NTSC_COLORBURST_MHZ		3.5795454
+	#define NTSC_COLORBURST_FREQ	(NTSC_COLORBURST_MHZ*1000000)
+	#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*NTSC_COLORBURST_MHZ)
+	#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
+
+	/*
+		Set the total line width, in color clocks.
+		ALTERNATE_COLORBURST_PHASE will generate proper 262.5
+		color clock lines but is only partially supported at
+		the moment (and doesn't seem to be necessary.)	
+	*/
+
+	#ifdef ALTERNATE_COLORBURST_PHASE
+		#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
+	#else 
+		#define LINE_WIDTH (228*SAMPLES_PER_CLOCK)
+	#endif 
+
+	/*
+		Various timings needed to generate a proper NTSC signal.
+	*/
+	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
+	#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+
+	#define VBLANK_CLOCKS		(int)(27.1/(SAMPLE_LENGTH_US)+0.5)
+	
+	// VIDEO_START *MUST* be 32-bit aligned.
+	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*15)
+	#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
+
+	#define LINES_PER_FRAME			262
+	#define COLORBURST_FREQ	NTSC_COLORBURST_FREQ
+
+#endif
 // The chroma phase shift needed to adjust for VIDEO_START.  This
 // will typically be some fraction of pi.
 #define VIDEO_START_PHASE_SHIFT	0 // 3.14159
@@ -105,21 +200,8 @@ extern volatile int in_vblank;
 // before turning on the video display.  This 
 // is needed to give the TV time to lock the 
 // VBLANK signal.
-#define STARTUP_FRAME_DELAY 120
+#define STARTUP_FRAME_DELAY 10
 
-/*
-	Set the total line width, in color clocks.
-	ALTERNATE_COLORBURST_PHASE will generate proper 262.5
-	color clock lines but is only partially supported at
-	the moment (and doesn't seem to be necessary.)
-	
-*/
-
-#ifdef ALTERNATE_COLORBURST_PHASE
-	#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
-#else 
-	#define LINE_WIDTH (228*SAMPLES_PER_CLOCK)
-#endif 
 
 void setPaletteRaw(int num,float a,float b,float c,float d);
 

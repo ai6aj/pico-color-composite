@@ -1,12 +1,17 @@
 #include "ntsc-video-core.h"
 #include "ntsc-video-core.h"
 #include "pico-ntsc.pio.h"
-#include "atari-8bit-video-core.h"
+
+	// PALFIX
 
 const uint LED_PIN = PICO_DEFAULT_LED_PIN;
 
 
 int irq_count = 0;
+
+// Enables colorburst if true, set to 0 to get
+// 640+ horizontal B&W pixels on some TVs!
+int do_color = 1;
 
 
 
@@ -16,37 +21,6 @@ int irq_count = 0;
  **********************************/
 uint8_t palette[256][4];
 volatile int in_vblank = 0;
-
-/*
-	Raw DAC values to generate proper levels.
-*/
-#define SAMPLES_PER_CLOCK	4
-#define	DAC_BITS	8
-#define FIRST_GPIO_PIN 0
-
-#define MAX_DAC_OUT	((1 << DAC_BITS)-1)
-#define MIN_DAC_OUT	0
-#define BLANKING_VAL		(uint)(((40.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_HI_VAL	(uint)(((60.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define COLOR_BURST_LO_VAL	(uint)(((20.0/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define SYNC_VAL			MIN_DAC_OUT
-#define BLACK_LEVEL			(uint)(((47.5/140.0)*(float)MAX_DAC_OUT)+0.5)
-#define WHITE_LEVEL			MAX_DAC_OUT
-#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
-
-/* 
-	Values needed to make timing calculations
-*/
-
-#define NTSC_COLORBURST_FREQ	3579545.0
-#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*3.5795454)
-#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
-
-/*
-	Various timings needed to generate a proper NTSC signal.
-*/
-#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 
 /*
@@ -169,6 +143,8 @@ uint8_t test_line[LINE_WIDTH+1];
 
 uint8_t vblank_line[LINE_WIDTH+1];
 uint8_t vblank_odd_line[LINE_WIDTH+1];
+
+
 uint8_t black_line[LINE_WIDTH+1];
 uint8_t black_line_2[LINE_WIDTH];
 
@@ -180,16 +156,23 @@ uint8_t __scratch_y("ntsc") pingpong_line_1[LINE_WIDTH];
 uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 
-int want_color=1;
 
 void make_vsync_line() {
 	int ofs = 0;
 	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
-	memset(vblank_line,SYNC_VAL,105*SAMPLES_PER_CLOCK);
+	
+	// PALFIX
+	// This is almost certainly wrong for PAL
+	memset(vblank_line,SYNC_VAL,VBLANK_CLOCKS); 		
+
 	
 	memset(vblank_odd_line,BLANKING_VAL,LINE_WIDTH);
 	memset(vblank_odd_line,SYNC_VAL,SYNC_TIP_CLOCKS);
-	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,105*SAMPLES_PER_CLOCK);
+
+	// PALFIX
+	// This is almost certainly wrong for PAL
+//	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
+	memset(vblank_odd_line,SYNC_VAL,VBLANK_CLOCKS);
 }
 
 void make_color_burst(uint8_t* line, int use_alternate_phase) {
@@ -199,12 +182,23 @@ void make_color_burst(uint8_t* line, int use_alternate_phase) {
 	float cb_scale = (c1-c2);
 	float phase = COLOR_BURST_PHASE_DEGREES/180.0 * 3.14159;	// Starting phase.
 	
+	// PALFIX
+	// Is this correct for PAL?
+	#ifdef USE_PAL
+	for (int i=0; i<11; i++) {
+		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
+			line[COLOR_BURST_START+i*SAMPLES_PER_CLOCK+n] = BLANKING_VAL + (int)((cb_scale * sin(phase))+0.5);
+			phase += 3.14159*2/SAMPLES_PER_CLOCK;
+		}
+	}	
+	#else
 	for (int i=0; i<10; i++) {
 		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
 			line[COLOR_BURST_START+i*SAMPLES_PER_CLOCK+n] = BLANKING_VAL + (int)((cb_scale * sin(phase))+0.5);
 			phase += 3.14159*2/SAMPLES_PER_CLOCK;
 		}
 	}
+	#endif
 }
 
 void make_black_line() {
@@ -220,13 +214,13 @@ void make_black_line() {
 	
 	// Starts at 5.3uS = 37.94318 clocks
 
-	
+
 	memcpy(black_line_2,black_line,LINE_WIDTH);
 
 	// Start HSYNC here
 	black_line[LINE_WIDTH-1] = 0;
 	
-	if (want_color) {
+	if (do_color) {
 		make_color_burst(black_line,0);
 	}
 	
@@ -234,7 +228,7 @@ void make_black_line() {
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
 	
-	if (want_color) {
+	if (do_color) {
 		make_color_burst(black_line_2,1);
 	}
 	#endif
@@ -277,14 +271,9 @@ int even_frame = 1; 	// 0 = odd, 1 = even
 // If true, will generate an interlaced TV signal
 // Currently jitters a lot possibly due to a bug in
 // odd/even field ordering
-int do_interlace = 0;
+int do_interlace = 1;
 
-// Enables colorburst if true, set to 0 to get
-// 640+ horizontal B&W pixels on some TVs!
-int do_color = 1;
 
-int start_video_line = 35;
-int end_video_line = 234;
 
 
 int line = 0;
@@ -297,8 +286,9 @@ uint8_t*	next_dma_line = vblank_line;
 */
 
 
+
 // Basic display list for a 200 line display.
-display_list_t sample_display_list[] = { DISPLAY_LIST_USER_RENDER_RAW, ATARI_NTSC_VERTICAL_LINE_COUNT,
+display_list_t sample_display_list[] = { DISPLAY_LIST_USER_RENDER_RAW, 200,
 							  DISPLAY_LIST_WVB,0 };
 
 // Our initial display list is just a black display.  This allows the TV time to 
@@ -420,7 +410,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 
 	// VBLANK should start on line 258.
-	if (line >= 262) {
+	if (line >= LINES_PER_FRAME) {		
 		in_vblank = 1;
 		
 		if (even_frame) {
@@ -465,7 +455,8 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 				// Forge a VBLANK
 				case DISPLAY_LIST_WVB:
 					// This will force reading the DL to stall until 
-					// reset by VBLANK
+					// reset by VBLANK, since every time we pass through
+					// this switch() display_list_lines_remaining will be reset to 2
 					display_list_lines_remaining = 2;
 					// Otherwise it's a black line
 
@@ -499,6 +490,8 @@ void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
 	make_vsync_line();
 	
+	// PALFIX
+	// Is this needed?
 	for (int i=0; i<768; i++) {
 		test_line[i] = i/3;
 	}
@@ -508,11 +501,13 @@ void init_video_lines() {
 	make_normal_line(pingpong_lines[0],do_color,0);
 	make_normal_line(pingpong_lines[1],do_color,0);
 
+	// Is this needed?
 	pingpong_lines[0][800] = 31;
 	pingpong_lines[0][801] = 31;
 	pingpong_lines[1][800] = 31;
 	pingpong_lines[1][801] = 31;
 
+	// Is this needed?
 	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
 				pingpong_lines[0][i+0] = 15;
 				pingpong_lines[0][i+1] = 15;
@@ -563,7 +558,7 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	// This may be subtly wrong, as we should really be matching the # of color clocks
 	// we want to spit out to ensure we're perfectly matched to our luma and chroma 
 	// signal
-	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (NTSC_COLORBURST_FREQ*SAMPLES_PER_CLOCK);
+	float PIO_clkdiv = (SYS_CLOCK_KHZ*1000) / (COLORBURST_FREQ*SAMPLES_PER_CLOCK);
 	
 	uint16_t div_int = (uint16_t)PIO_clkdiv;
 	uint8_t div_frac = 0;

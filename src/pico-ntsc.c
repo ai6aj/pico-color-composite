@@ -14,7 +14,7 @@ int __not_in_flash_func(main)() {
 	set_sys_clock_khz(SYS_CLOCK_KHZ,true);
     stdio_init_all();
 	
-	init_framebuffer();
+	init_framebuffer();	
 	multicore_launch_core1(ntsc_video_core);
 	
 	
