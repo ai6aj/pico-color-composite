@@ -15,7 +15,6 @@ int do_color = 1;
 
 
 
-
 /**********************************
  FRAMEBUFFER STUFF
  **********************************/
@@ -125,7 +124,9 @@ JMP AND WAIT FOR VBLANK
    -------------------------------- */
 uint dma_channel;
 
+dma_channel_config dma_channel_cfg;
 
+volatile void *dma_write_addr;
 
 
 
@@ -141,8 +142,13 @@ uint dma_channel;
 */
 uint8_t test_line[LINE_WIDTH+1];
 
-uint8_t vblank_line[LINE_WIDTH+1];
-uint8_t vblank_odd_line[LINE_WIDTH+1];
+uint8_t vblank_line[LINE_WIDTH*2+1];
+uint8_t vblank_odd_line[LINE_WIDTH*2+1];
+
+#ifdef USE_PAL
+uint8_t vblank_and_short_sync[LINE_WIDTH+1];
+uint8_t pal_short_sync[LINE_WIDTH+1];
+#endif
 
 
 uint8_t black_line[LINE_WIDTH+1];
@@ -159,31 +165,46 @@ uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 void make_vsync_line() {
 	int ofs = 0;
-	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
+	memset(vblank_line,BLANKING_VAL,LINE_WIDTH*2);
 	
 	// PALFIX
 	// This is almost certainly wrong for PAL
 	memset(vblank_line,SYNC_VAL,VBLANK_CLOCKS); 		
+	memset(&vblank_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
+	memset(&vblank_line[LINE_WIDTH],SYNC_VAL,VBLANK_CLOCKS);
 
 	
-	memset(vblank_odd_line,BLANKING_VAL,LINE_WIDTH);
+	memset(vblank_odd_line,BLANKING_VAL,LINE_WIDTH*2);
 	memset(vblank_odd_line,SYNC_VAL,SYNC_TIP_CLOCKS);
 
 	// PALFIX
 	// This is almost certainly wrong for PAL
 //	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
-	memset(vblank_odd_line,SYNC_VAL,VBLANK_CLOCKS);
+//	memset(vblank_odd_line,SYNC_VAL,VBLANK_CLOCKS);
+	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
+	memset(&vblank_line[LINE_WIDTH],SYNC_VAL,VBLANK_CLOCKS);
+	
+	
+	#ifdef USE_PAL
+	memset(vblank_and_short_sync,BLANKING_VAL,LINE_WIDTH);
+	memset(vblank_and_short_sync,SYNC_VAL,VBLANK_CLOCKS);
+	memset(&vblank_and_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+	memset(pal_short_sync,BLANKING_VAL,LINE_WIDTH); 		
+	memset(pal_short_sync,SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+	memset(&pal_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+	#endif
+
 }
 
-void make_color_burst(uint8_t* line, int use_alternate_phase) {
+void make_color_burst(uint8_t* line, float cb_phase) {
 	uint8_t c1 = COLOR_BURST_HI_VAL;
 	uint8_t c2 = COLOR_BURST_LO_VAL;
 	
 	float cb_scale = (c1-c2);
-	float phase = COLOR_BURST_PHASE_DEGREES/180.0 * 3.14159;	// Starting phase.
 	
 	// PALFIX
 	// Is this correct for PAL?
+	float phase = COLOR_BURST_PHASE_DEGREES/cb_phase * 3.14159;	// Starting phase.
 	#ifdef USE_PAL
 	for (int i=0; i<11; i++) {
 		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
@@ -220,19 +241,22 @@ void make_black_line() {
 	// Start HSYNC here
 	black_line[LINE_WIDTH-1] = 0;
 	
+	#ifdef USE_PAL
+		make_color_burst(black_line,135.0);
+		make_color_burst(black_line,225.0);	
+	#else
 	if (do_color) {
-		make_color_burst(black_line,0);
+		make_color_burst(black_line,180.0);
 	}
-	
+	#endif
 	// Need to alternate phase for line 2
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
 	
 	if (do_color) {
-		make_color_burst(black_line_2,1);
+		make_color_burst(black_line_2,1,1);
 	}
 	#endif
-	
 	// Video officially begins at 9.4uS / 67.2954 clocks
 	// Start at 68 to be in phase with clock signal	
 }
@@ -244,7 +268,7 @@ void make_black_line() {
 	use_alternate_phase		If true, invert the colorburst phase 180 degrees
 	
 **/
-void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase) {
+void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase, int is_even_line) {
 	// Set everything to the blanking level
 	memset(dest,BLACK_LEVEL,LINE_WIDTH);
 	
@@ -255,7 +279,14 @@ void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase)
 	
 	// Fill in colorburst signal if desired
 	if (do_colorburst) {
-		make_color_burst(dest,use_alternate_phase);
+		#ifdef USE_PAL
+		if (is_even_line)
+			make_color_burst(dest,135.0);
+		else
+			make_color_burst(dest,225.0);			
+		#else
+		make_color_burst(dest,180.0);
+		#endif
 	}
 }
 
@@ -362,25 +393,6 @@ void set_user_new_line_callback(user_new_line_func_t *f) {
 	user_new_line_func = f;
 }
 
-
-static void __not_in_flash_func(user_render_160)(uint line, uint8_t* dest,user_render_func_t user_func) {
-		uint8_t* sourceline = user_func(line);
-		uint8_t* colorptr;
-		frcount++;
-		int ofs = VIDEO_START;
-
-		for (int i=0; i<320; i++) {
-			colorptr = palette[sourceline[i]];
-		
-			// The compiler will optimize this		
-			dest[ofs] = colorptr[0];
-			dest[ofs+1] = colorptr[1];
-//			dest[ofs+2] = colorptr[2];
-//			dest[ofs+3] = colorptr[3];
-			ofs += 4;
-		}
-}
-
 user_render_func_t user_render_func = NULL; 
 // Called back on every new line, with line #
 
@@ -390,10 +402,17 @@ user_render_func_t user_render_func = NULL;
 	
 */
 
+volatile int next_dma_width = LINE_WIDTH;
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	
-	// Set the next DMA access point and reset the interrupt
-    dma_channel_set_read_addr(dma_channel, next_dma_line, true);
+    dma_channel_configure(dma_channel, &dma_channel_cfg,
+        dma_write_addr,              // Destination pointer
+        next_dma_line,                       // Source pointer
+        next_dma_width,          // Number of transfers
+        true                        // Start flag (true = start immediately)
+    );
+	
+//    dma_channel_set_read_addr(dma_channel, next_dma_line, true);
     dma_hw->ints0 = 1 << dma_channel;		
 
 	// User line callback goes here so we don't get a bunch
@@ -409,22 +428,30 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	
 
 
-	// VBLANK should start on line 258.
 	if (line >= LINES_PER_FRAME) {		
 		in_vblank = 1;
+
+		#ifdef USE_PAL
+		next_dma_width = LINE_WIDTH*1.5;
+		#endif 
 		
-		if (even_frame) {
-		    next_dma_line = vblank_line;
-			line = 0;
-			frame++;
-			if (do_interlace) even_frame = 0;
+		line = 0;
+		frame++;
+
+		if (do_interlace) {
+			if (even_frame) {
+				next_dma_line = vblank_odd_line;
+				even_frame = 0;
+			}
+			else {
+				next_dma_line = vblank_line;
+				even_frame = 1;
+			}
 		}
 		else {
-		    next_dma_line = vblank_odd_line;
-			line = 0;
-			frame++;
-			even_frame = 1;
-		} 
+		    next_dma_line = vblank_line;
+		}
+		
 
 		if (startup_frame_counter) {
 			startup_frame_counter--;
@@ -442,7 +469,24 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 		if (user_vblank_func != NULL) {
 			user_vblank_func();
 		}
-	} else {
+	} 
+	
+	#ifdef USE_PAL
+	else if (line < 2) {
+		next_dma_width = LINE_WIDTH;
+		// Lines 0,1 do broad pulse (VBLANK).
+		// At line 1 we switch to the broad/short pulse combo.
+		if (line == 1) {
+		    next_dma_line = pal_short_sync;			
+		}
+		else if (line > 1) {
+		    next_dma_line = pal_short_sync;	
+		}
+		line++;
+	}
+	#endif
+	
+	else {
 			in_vblank = 0;
 			// If no display list command, read it
 			if (display_list_lines_remaining == 0) {
@@ -496,10 +540,10 @@ void init_video_lines() {
 		test_line[i] = i/3;
 	}
 	
-	make_normal_line(black_lines[0],do_color,0);
-	make_normal_line(black_lines[1],do_color,0);
-	make_normal_line(pingpong_lines[0],do_color,0);
-	make_normal_line(pingpong_lines[1],do_color,0);
+	make_normal_line(black_lines[0],do_color,0,0);
+	make_normal_line(black_lines[1],do_color,0,1);
+	make_normal_line(pingpong_lines[0],do_color,0,0);
+	make_normal_line(pingpong_lines[1],do_color,0,1);
 
 	// Is this needed?
 	pingpong_lines[0][800] = 31;
@@ -531,20 +575,22 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	
     pio_sm_clear_fifos(pio, sm);
     
-	dma_channel_config c = dma_channel_get_default_config(dma_channel);
+	dma_channel_cfg = dma_channel_get_default_config(dma_channel);
     
 	// DMA transfers exec 8 bits at a time
-	channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+	channel_config_set_transfer_data_size(&dma_channel_cfg, DMA_SIZE_8);
 	
 	// DMA transfers increment the address
-    channel_config_set_read_increment(&c, true);
+    channel_config_set_read_increment(&dma_channel_cfg, true);
 	
 	// DMA transfers use DREQ
-    channel_config_set_dreq(&c, pio_get_dreq(pio, sm, true));
+    channel_config_set_dreq(&dma_channel_cfg, pio_get_dreq(pio, sm, true));
 	
+
+	dma_write_addr = &pio->txf[sm];
 	
-    dma_channel_configure(dma_channel, &c,
-        &pio->txf[sm],              // Destination pointer
+    dma_channel_configure(dma_channel, &dma_channel_cfg,
+        dma_write_addr,              // Destination pointer
         NULL,                       // Source pointer
         LINE_WIDTH,          // Number of transfers
         true                        // Start flag (true = start immediately)

@@ -90,11 +90,21 @@ extern volatile int in_vblank;
 		It may be possible to sync PAL by extending the VBLANK line by 50%.
 		
 		-Jon	
+		
+		
+		NOTES:
+		
+		http://martin.hinner.info/vga/pal.html
+		
+		Look under 'Timing', the paragraph starting 
+		"You can stop the display being interlaced if you want"
+		Seems like with proper implementation of "pre-equalization"
+		and "long sync" pulses we can avoid doing a half-line.
 	*/
 
 	#define BLANKING_VAL		(uint)(((45.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 	#define COLOR_BURST_HI_VAL	(uint)(((55.0/143.0)*(float)MAX_DAC_OUT)+0.5)
-	#define COLOR_BURST_LO_VAL	(uint)(((51.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_LO_VAL	(uint)(((35.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 
 //	#define COLOR_BURST_HI_VAL	(uint)(((43.0/100.0)*(float)MAX_DAC_OUT)+0.5)
 //	#define COLOR_BURST_LO_VAL	(uint)(((14.0/100.0)*(float)MAX_DAC_OUT)+0.5)
@@ -132,7 +142,7 @@ extern volatile int in_vblank;
 	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 	#define COLOR_BURST_START	(int)(5.6/(SAMPLE_LENGTH_US)+0.5)
 	#define VBLANK_CLOCKS		(int)(27.3/(SAMPLE_LENGTH_US)+0.5)
-
+	#define SHORT_SYNC_CLOCKS	(int)(2.3/(SAMPLE_LENGTH_US)+0.5)
 
 	// VIDEO_START *MUST* be 32-bit aligned.
 	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*50+1)

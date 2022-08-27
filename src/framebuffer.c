@@ -1,8 +1,13 @@
 #include "framebuffer.h"
 
 
+#ifdef USE_PAL
+	#define	BLACK_LINE_COUNT	30
+#else
+	#define	BLACK_LINE_COUNT	18
+#endif
 display_list_t __scratch_y("ntsc_framebuffer") framebuffer_display_list[] = { 
-	DISPLAY_LIST_BLACK_LINE, 18,
+	DISPLAY_LIST_BLACK_LINE, BLACK_LINE_COUNT,
 	DISPLAY_LIST_USER_RENDER_RAW, 240,
 	DISPLAY_LIST_WVB,0 };
 
@@ -31,7 +36,6 @@ void drawline (int x0, int y0, int x1, int y1, uint8_t color)
   }
 }
 #endif
-
 
 static void __not_in_flash_func(framebuffer_vblank)() {
 	framebuffer_line = 0;
@@ -85,10 +89,21 @@ int chStride = 48;	// Can be increased for scrolling purposes.
 int vscrol = 0;
 int hscrol = 0;
 
-static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, uint8_t* output_buffer) {
+
+static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, uint8_t* output_buffer) {	
 
 	uint16_t* dest = (uint16_t*)(&output_buffer[video_start]);	
 	uint16_t* palette16 = (uint16_t*)palette;
+
+/*
+	if (xeven_frame) {
+		for (int i=0; i<384; i+=2) {
+			*(dest++) = palette16[0];
+			*(dest++) = palette16[1];
+		}
+		return;
+	}
+*/
 	
 	// Start of the line of characters in our character framebuffer.
 	int chBufOfs = chStride * ((line+vscrol) / chHeight) + (hscrol >> 3);
