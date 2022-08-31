@@ -196,7 +196,7 @@ extern volatile int in_vblank;
 	// VIDEO_START *MUST* be 32-bit aligned.
 	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*15)
 	#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
-
+	
 	#define LINES_PER_FRAME			262
 	#define COLORBURST_FREQ	NTSC_COLORBURST_FREQ
 

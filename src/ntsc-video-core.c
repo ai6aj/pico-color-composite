@@ -402,6 +402,41 @@ user_render_func_t user_render_func = NULL;
 	
 */
 
+
+/* TODO
+
+In NTSC:
+
+Vblank occupies lines 1–21 of each field:
+
+1-3 Equalizing,	
+4-6 Broad pulses,
+7-9 Equalizing
+
+None of these lines have colorburst.  All following lines do.
+
+Beyond that, lines 10-21 are available for use.
+In particular, lines 19 is used for VIR (Vertical Interval Reference)
+with the following specs:
+
+
+from 12uS, len=24uS: 70 IRE,  same chroma as colorburst
+len=12uS: 50 IRE luma,  no chroma
+len=12uS, 7.5 IRE (black) luma, no chroma
+
+A little more info on interlacing, and how to determine odd/even fields:
+
+https://forums.nesdev.org/viewtopic.php?t=7909
+
+Since USER_RENDER_RAW is never expected to render VBLANK, etc. we 
+can simply fudge the "line" parameter to the range 0-241.
+
+We should also have a USER_RENDER_YPI mode where we pass luma/chroma phase/saturation
+
+USER_RENDER_RGB might be a stretch :)
+
+*/
+
 volatile int next_dma_width = LINE_WIDTH;
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	
@@ -432,7 +467,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 		in_vblank = 1;
 
 		#ifdef USE_PAL
-		next_dma_width = LINE_WIDTH*1.5;
+		//next_dma_width = LINE_WIDTH*1.5;
 		#endif 
 		
 		line = 0;
@@ -484,6 +519,14 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 		}
 		line++;
 	}
+	#else
+	else if (line < 2) {
+		// For NTSC, we repeat the VBLANK line
+		// 3 times (=6 VBLANK pulses)
+		next_dma_width = LINE_WIDTH;
+	    next_dma_line = vblank_line;			
+		line++;
+	}		
 	#endif
 	
 	else {
