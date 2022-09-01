@@ -75,7 +75,7 @@ extern volatile int in_vblank;
 #define MAX_DAC_OUT	((1 << DAC_BITS)-1)
 #define MIN_DAC_OUT	0
 
-#define USE_NTSC
+#define USE_PAL
 
 #ifdef USE_PAL
 	
@@ -103,8 +103,8 @@ extern volatile int in_vblank;
 	*/
 
 	#define BLANKING_VAL		(uint)(((45.0/143.0)*(float)MAX_DAC_OUT)+0.5)
-	#define COLOR_BURST_HI_VAL	(uint)(((55.0/143.0)*(float)MAX_DAC_OUT)+0.5)
-	#define COLOR_BURST_LO_VAL	(uint)(((35.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_HI_VAL	(uint)(((65.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_LO_VAL	(uint)(((25.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 
 //	#define COLOR_BURST_HI_VAL	(uint)(((43.0/100.0)*(float)MAX_DAC_OUT)+0.5)
 //	#define COLOR_BURST_LO_VAL	(uint)(((14.0/100.0)*(float)MAX_DAC_OUT)+0.5)
@@ -133,7 +133,7 @@ extern volatile int in_vblank;
 	#ifdef ALTERNATE_COLORBURST_PHASE
 		#define LINE_WIDTH (283*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
 	#else 
-		#define LINE_WIDTH (283*SAMPLES_PER_CLOCK)
+		#define LINE_WIDTH (282*SAMPLES_PER_CLOCK)
 	#endif 
 
 	/*
@@ -142,7 +142,7 @@ extern volatile int in_vblank;
 	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
 	#define COLOR_BURST_START	(int)(5.6/(SAMPLE_LENGTH_US)+0.5)
 	#define VBLANK_CLOCKS		(int)(27.3/(SAMPLE_LENGTH_US)+0.5)
-	#define SHORT_SYNC_CLOCKS	(int)(2.3/(SAMPLE_LENGTH_US)+0.5)
+	#define SHORT_SYNC_CLOCKS	(int)(2.35/(SAMPLE_LENGTH_US)+0.5)
 
 	// VIDEO_START *MUST* be 32-bit aligned.
 	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*50+1)
@@ -182,14 +182,14 @@ extern volatile int in_vblank;
 	#ifdef ALTERNATE_COLORBURST_PHASE
 		#define LINE_WIDTH (227*SAMPLES_PER_CLOCK-(SAMPLES_PER_CLOCK/2))
 	#else 
-		#define LINE_WIDTH (228*SAMPLES_PER_CLOCK)
+		#define LINE_WIDTH (226*SAMPLES_PER_CLOCK)
 	#endif 
 
 	/*
 		Various timings needed to generate a proper NTSC signal.
 	*/
 	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-	#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.5)
+	#define COLOR_BURST_START	(int)(5.3/(SAMPLE_LENGTH_US)+0.4)
 
 	#define VBLANK_CLOCKS		(int)(27.1/(SAMPLE_LENGTH_US)+0.5)
 	

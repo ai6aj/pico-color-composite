@@ -145,8 +145,15 @@ uint8_t test_line[LINE_WIDTH+1];
 uint8_t vblank_line[LINE_WIDTH+1];
 
 #ifdef USE_PAL
-uint8_t vblank_and_short_sync[LINE_WIDTH+1];
+uint8_t pal_broad_and_short_sync[LINE_WIDTH+1];
+uint8_t pal_short_and_broad_sync[LINE_WIDTH+1];
+
+uint8_t pal_short_sync_and_black[LINE_WIDTH+1];
+uint8_t pal_black_and_short_sync[LINE_WIDTH+1];
+
+uint8_t pal_broad_sync[LINE_WIDTH+1];
 uint8_t pal_short_sync[LINE_WIDTH+1];
+
 #else
 uint8_t equalization_line[LINE_WIDTH+1];
 
@@ -206,12 +213,28 @@ void make_vsync_line() {
 	#endif 
 	
 	#ifdef USE_PAL
-	memset(vblank_and_short_sync,BLANKING_VAL,LINE_WIDTH);
-	memset(vblank_and_short_sync,SYNC_VAL,VBLANK_CLOCKS);
-	memset(&vblank_and_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+	memset(pal_broad_and_short_sync,BLANKING_VAL,LINE_WIDTH);
+	memset(pal_broad_and_short_sync,SYNC_VAL,VBLANK_CLOCKS);
+	memset(&pal_broad_and_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+
+	memset(pal_short_and_broad_sync,BLANKING_VAL,LINE_WIDTH);
+	memset(pal_short_and_broad_sync,SYNC_VAL,SHORT_SYNC_CLOCKS);
+	memset(&pal_short_and_broad_sync[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS); 		
+
 	memset(pal_short_sync,BLANKING_VAL,LINE_WIDTH); 		
 	memset(pal_short_sync,SYNC_VAL,SHORT_SYNC_CLOCKS); 		
 	memset(&pal_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS); 		
+
+	memset(pal_broad_sync,BLANKING_VAL,LINE_WIDTH); 		
+	memset(pal_broad_sync,SYNC_VAL,VBLANK_CLOCKS); 		
+	memset(&pal_broad_sync[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS); 		
+
+	memset(pal_short_sync_and_black,BLANKING_VAL,LINE_WIDTH);
+	memset(pal_short_sync_and_black,SYNC_VAL,SHORT_SYNC_CLOCKS);
+
+	memset(pal_black_and_short_sync,BLANKING_VAL,LINE_WIDTH);
+	memset(pal_black_and_short_sync,SYNC_VAL,SYNC_TIP_CLOCKS);
+	memset(&pal_black_and_short_sync[LINE_WIDTH/2],SYNC_VAL,SHORT_SYNC_CLOCKS);
 	#endif
 
 }
@@ -226,7 +249,7 @@ void make_color_burst(uint8_t* line, float cb_phase) {
 	// Is this correct for PAL?
 	float phase = COLOR_BURST_PHASE_DEGREES/cb_phase * 3.14159;	// Starting phase.
 	#ifdef USE_PAL
-	for (int i=0; i<11; i++) {
+	for (int i=0; i<10; i++) {
 		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
 			line[COLOR_BURST_START+i*SAMPLES_PER_CLOCK+n] = BLANKING_VAL + (int)((cb_scale * sin(phase))+0.5);
 			phase += 3.14159*2/SAMPLES_PER_CLOCK;
@@ -263,7 +286,7 @@ void make_black_line() {
 	
 	#ifdef USE_PAL
 		make_color_burst(black_line,135.0);
-		make_color_burst(black_line,225.0);	
+		make_color_burst(black_line_2,225.0);	
 	#else
 	if (do_color) {
 		make_color_burst(black_line,180.0);
@@ -301,9 +324,9 @@ void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase,
 	if (do_colorburst) {
 		#ifdef USE_PAL
 		if (is_even_line)
-			make_color_burst(dest,135.0);
+			make_color_burst(dest,180.0);
 		else
-			make_color_burst(dest,225.0);			
+			make_color_burst(dest,180.0);			
 		#else
 		make_color_burst(dest,180.0);
 		#endif
@@ -426,7 +449,9 @@ user_render_func_t user_render_func = NULL;
 
 
 volatile int next_dma_width = LINE_WIDTH;
-static void __not_in_flash_func(cvideo_dma_handler)(void) {
+
+#ifdef USE_PAL
+static void __not_in_flash_func(pal_video_dma_handler)(void) {
 	
     dma_channel_configure(dma_channel, &dma_channel_cfg,
         dma_write_addr,              // Destination pointer
@@ -440,7 +465,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 	// User line callback goes here so we don't get a bunch
 	// of jitter in audio.
-	if (user_new_line_func != NULL) { user_new_line_func(line); }
+	// if (user_new_line_func != NULL) { user_new_line_func(line); }
 
 
 	// We should ALWAYS set the read address to whatever we decided it should be
@@ -448,115 +473,88 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 	// This way we don't get an extra line(s) when switching between black lines and 
 	// framebuffer lines.
 
-	
-
-
-	if (line >= LINES_PER_FRAME) {		
+/*	if (line == 1 || line == 264) {
 		in_vblank = 1;
-
-		#ifdef USE_PAL
-		//next_dma_width = LINE_WIDTH*1.5;
-		#endif 
-		
-		line = 0;
-		frame++;
-
-		if (do_interlace) {
-			if (even_frame) {
-				// next_dma_line = vblank_odd_line;
-				even_frame = 0;
-			}
-			else {
-				next_dma_line = vblank_line;
-				even_frame = 1;
-			}
-		}
-		else {
-		    next_dma_line = vblank_line;
-		}
-		
-
-		if (startup_frame_counter) {
-			startup_frame_counter--;
-			if (startup_frame_counter == 0) {
-				display_list_ptr = next_display_list;			
-			}
-		} else {			
-			display_list_ptr = next_display_list;
-		}
-
-		display_list_ofs = 0;
-		display_list_current_cmd = 0;
-		display_list_lines_remaining = 0;
-		
 		if (user_vblank_func != NULL) {
 			user_vblank_func();
 		}
-	} 
-	
-	#ifdef USE_PAL
-	else if (line < 2) {
-		next_dma_width = LINE_WIDTH;
-		// Lines 0,1 do broad pulse (VBLANK).
-		// At line 1 we switch to the broad/short pulse combo.
-		if (line == 1) {
-		    next_dma_line = pal_short_sync;			
-		}
-		else if (line > 1) {
-		    next_dma_line = pal_short_sync;	
-		}
-		line++;
-	}
-	#else
-	else if (line < 2) {
-		// For NTSC, we repeat the VBLANK line
-		// 3 times (=6 VBLANK pulses)
-		next_dma_width = LINE_WIDTH;
-	    next_dma_line = vblank_line;			
-		line++;
-	}		
-	#endif
-	
-	else {
-			in_vblank = 0;
-			// If no display list command, read it
-			if (display_list_lines_remaining == 0) {
-				display_list_current_cmd = display_list_ptr[display_list_ofs++];
-				display_list_lines_remaining = display_list_ptr[display_list_ofs++];				
-			}
-			
-			// Do the display list command
-			switch (display_list_current_cmd) {
-				// Forge a VBLANK
-				case DISPLAY_LIST_WVB:
-					// This will force reading the DL to stall until 
-					// reset by VBLANK, since every time we pass through
-					// this switch() display_list_lines_remaining will be reset to 2
-					display_list_lines_remaining = 2;
-					// Otherwise it's a black line
+	} */
 
-				default:
-				case DISPLAY_LIST_BLACK_LINE:
-					next_dma_line = black_lines[line & 1];
-					break;
-										
-				case DISPLAY_LIST_USER_RENDER:
-					next_dma_line = pingpong_lines[line & 1];
-					user_render(line,pingpong_lines[line & 1],user_render_func);
-					break;
-					
-				case DISPLAY_LIST_USER_RENDER_RAW:
-				    //next_dma_line = black_lines[line & 1];
-					next_dma_line = pingpong_lines[line & 1];			
-					user_render_raw_func(line,VIDEO_START,pingpong_lines[line & 1]);
-					break;
-			}
-			
-			if (display_list_lines_remaining) { display_list_lines_remaining--; }
-			line++;
+	// Lines 1-2: Broad Sync
+	if (line < 3) {
+		next_dma_line = pal_broad_sync;		
 	}
 	
+	// Line 3 : Broad, then Short Sync
+	else if (line == 3) {
+		next_dma_line = pal_broad_and_short_sync;
+	}
+	
+	// Lines 4-5 : Short Sync
+	else if (line < 6) {
+		next_dma_line = pal_short_sync;
+	}
+	
+	// Lines 6-310: Video
+	else if (line < 311) {
+		in_vblank = 0;
+		next_dma_line = pingpong_lines[line & 1];
+
+		// Remap the NTSC interlaced lines to progressive
+		// scan lines for ease of rendering... the user render
+		// function will see requests to draw lines 0-484 issued 
+		// out of order; to do a traditional 242 line "pseudo progressive"
+		// display the render function should simply discard the LSB.
+		user_render_raw_func((line-6)*2,VIDEO_START,pingpong_lines[line & 1]);				
+	}
+
+	// Lines 311-312: Short Sync
+	else if (line < 313) {
+		next_dma_line = pal_short_sync;		
+	}
+
+	// Line 313: Short, then Broad Sync
+	else if (line == 313) {
+		next_dma_line = pal_short_and_broad_sync;
+	}
+
+	// Line 314-315: Broad Sync
+	else if (line < 316) {
+		next_dma_line = pal_broad_sync;					
+	}
+
+	// Line 316-317: Short Sync
+	else if (line < 318) {
+		next_dma_line = pal_short_sync;				
+	}
+	
+	// Line 318: Short Sync, then black
+	else if (line == 318) {
+		next_dma_line = pal_short_sync_and_black;
+	}
+	
+	// Line 319-622: Video
+	else if (line < 623) {
+		in_vblank = 0;
+		next_dma_line = pingpong_lines[line & 1];			
+		user_render_raw_func((line-319)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
+		//user_render_raw_func(line >> 1,VIDEO_START,pingpong_lines[line & 1]);		
+	}
+	
+	// Line 623: Black, then Short Sync
+	else if (line == 623) {
+		next_dma_line = pal_black_and_short_sync;
+	}
+	
+	// Line 624-625: Short Sync
+	else {
+		next_dma_line = pal_short_sync;		
+	}
+
+	line++;
+	if (line > 625) { line = 1; }	
 }
+#endif
 
 
 /* TODO
@@ -593,6 +591,7 @@ USER_RENDER_RGB might be a stretch :)
 
 */
 
+#ifdef USE_NTSC
 static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	
     dma_channel_configure(dma_channel, &dma_channel_cfg,
@@ -615,6 +614,12 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	// This way we don't get an extra line(s) when switching between black lines and 
 	// framebuffer lines.
 
+	if (line == 1 || line == 264) {
+		in_vblank = 1;
+		if (user_vblank_func != NULL) {
+			user_vblank_func();
+		}
+	}
 
 	// Lines 1-3: Pre-Equalizing
 	if (line < 4) {
@@ -632,14 +637,21 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	}
 	
 	// Lines 10-21: Black
-	else if (line < 22 ) {
+	else if (line < 21 ) {
 		next_dma_line = black_line;		
 	}
 
-	// Lines 22-262: Video
+	// Lines 21-262: Video
 	else if (line < 263) {
-		next_dma_line = pingpong_lines[line & 1];			
-		user_render_raw_func((line-21),VIDEO_START,pingpong_lines[line & 1]);				
+		in_vblank = 0;
+		next_dma_line = pingpong_lines[line & 1];
+
+		// Remap the NTSC interlaced lines to progressive
+		// scan lines for ease of rendering... the user render
+		// function will see requests to draw lines 0-484 issued 
+		// out of order; to do a traditional 242 line "pseudo progressive"
+		// display the render function should simply discard the LSB.
+		user_render_raw_func((line-21)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
 	}
 
 	// Line 263: Half-line, half-equalizing
@@ -662,39 +674,41 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 		next_dma_line = vblank_line;				
 	}
 	
-	// Line 270: half VBLANK, half-equalizing
-	else if (line == 270) {
+	// Line 269: half VBLANK, half-equalizing
+	else if (line == 269) {
 		next_dma_line = half_vblank_half_equalization_line;					
 	}
 	
-	// Line 271,272: Post-Equalizing
-	else if (line < 273) {
+	// Line 270,271: Post-Equalizing
+	else if (line < 272) {
 		next_dma_line = equalization_line;			
 	}
 	
-	// Line 273: half-equalizing, half-black
-	else if (line == 273) {
+	// Line 272: half-equalizing, half-black
+	else if (line == 272) {
 		next_dma_line = half_equalization_half_black_line;				
 	}
 	
 	// Lines 274-284: Black
-	else if (line < 285) {
+	// Technically line 283 is a half-video line
+	// but we ignore that.
+	else if (line < 284) {
 		next_dma_line = black_line;		
 	}
 	
-	// Lines 275+: Video
+	// Lines 284+: Video
 	else {
 		// next_dma_line = black_line;
-
+		in_vblank = 0;
 		next_dma_line = pingpong_lines[line & 1];			
-		user_render_raw_func((line-275) >> 1,VIDEO_START,pingpong_lines[line & 1]);				
+		user_render_raw_func((line-283)*2,VIDEO_START,pingpong_lines[line & 1]);				
 		//user_render_raw_func(line >> 1,VIDEO_START,pingpong_lines[line & 1]);		
 	}
 
 	line++;
 	if (line > 525) { line = 1; }	
 }
-
+#endif
 
 
 void init_video_lines() {
@@ -765,7 +779,7 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
     	
 	dma_channel_set_irq0_enabled(dma_channel, true);
 	#ifdef USE_PAL
-		irq_set_exclusive_handler(DMA_IRQ_0, cvideo_dma_handler);
+		irq_set_exclusive_handler(DMA_IRQ_0, pal_video_dma_handler);
 	#else
 		irq_set_exclusive_handler(DMA_IRQ_0, ntsc_video_dma_handler);
 	#endif

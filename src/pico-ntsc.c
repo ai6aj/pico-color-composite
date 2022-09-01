@@ -52,15 +52,16 @@ int __not_in_flash_func(main)() {
 		// and b. doesn't interfere with the display		
 		float f = get_video_core_load();
 		printf("Video core load %.1f%\n",f*100);
-		sleep_ms(500);
+		// sleep_ms(500);
 		// Don't update the palette until VBLANK
 		while (!in_vblank);
 //		setPaletteRGB(0,(foo & 0xE0), (foo & 0x1C) << 3, (foo & 2) << 6);
 		foo++;
-		vscrol++;
-		hscrol++;
+//		vscrol++;
+		//hscrol+=2;
 		// Wait until we're out of VBLANK before proceeding
 		while (in_vblank);
+//		while (in_vblank);
 //		set_player_hpos(0,hpos++);
 	}
 }
