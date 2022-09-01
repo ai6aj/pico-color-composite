@@ -142,12 +142,19 @@ volatile void *dma_write_addr;
 */
 uint8_t test_line[LINE_WIDTH+1];
 
-uint8_t vblank_line[LINE_WIDTH*2+1];
-uint8_t vblank_odd_line[LINE_WIDTH*2+1];
+uint8_t vblank_line[LINE_WIDTH+1];
 
 #ifdef USE_PAL
 uint8_t vblank_and_short_sync[LINE_WIDTH+1];
 uint8_t pal_short_sync[LINE_WIDTH+1];
+#else
+uint8_t equalization_line[LINE_WIDTH+1];
+
+uint8_t half_black_half_equalization_line[LINE_WIDTH+1];
+uint8_t half_equalization_half_black_line[LINE_WIDTH+1];
+uint8_t half_equalization_half_vblank_line[LINE_WIDTH+1];					
+uint8_t half_vblank_half_equalization_line[LINE_WIDTH+1];					
+
 #endif
 
 
@@ -165,25 +172,38 @@ uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 void make_vsync_line() {
 	int ofs = 0;
-	memset(vblank_line,BLANKING_VAL,LINE_WIDTH*2);
+	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
 	
 	// PALFIX
 	// This is almost certainly wrong for PAL
 	memset(vblank_line,SYNC_VAL,VBLANK_CLOCKS); 		
 	memset(&vblank_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
-	memset(&vblank_line[LINE_WIDTH],SYNC_VAL,VBLANK_CLOCKS);
 
+	#ifdef USE_NTSC
+	memset(equalization_line,BLANKING_VAL,LINE_WIDTH);
+	memset(equalization_line, SYNC_VAL,SYNC_TIP_CLOCKS/2);
+	memset(&equalization_line[LINE_WIDTH/2], SYNC_VAL,SYNC_TIP_CLOCKS/2);
 	
-	memset(vblank_odd_line,BLANKING_VAL,LINE_WIDTH*2);
-	memset(vblank_odd_line,SYNC_VAL,SYNC_TIP_CLOCKS);
+	// Do the HSYNC pulse.  The front porch has been drawn
+	// by the previous DMA transfer, now provide 4.7uS
+	// of SYNC pulse
 
-	// PALFIX
-	// This is almost certainly wrong for PAL
-//	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
-//	memset(vblank_odd_line,SYNC_VAL,VBLANK_CLOCKS);
-	memset(&vblank_odd_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
-	memset(&vblank_line[LINE_WIDTH],SYNC_VAL,VBLANK_CLOCKS);
+	memset(half_black_half_equalization_line, BLANKING_VAL, LINE_WIDTH);
+	memset(half_black_half_equalization_line, SYNC_VAL,SYNC_TIP_CLOCKS);
+	memset(&half_black_half_equalization_line[LINE_WIDTH/2], SYNC_VAL,SYNC_TIP_CLOCKS/2);
 	
+	memset(half_equalization_half_black_line, BLANKING_VAL, LINE_WIDTH);
+	memset(half_equalization_half_black_line, SYNC_VAL,SYNC_TIP_CLOCKS/2);
+//	memset(&half_equalization_half_black_line[LINE_WIDTH/2], BLACK_LEVEL, LINE_WIDTH/2);
+
+	memset(half_equalization_half_vblank_line, BLANKING_VAL, LINE_WIDTH);
+	memset(half_equalization_half_vblank_line, SYNC_VAL,SYNC_TIP_CLOCKS/2);
+	memset(&half_equalization_half_vblank_line[LINE_WIDTH/2], SYNC_VAL,VBLANK_CLOCKS); 		
+
+	memset(half_vblank_half_equalization_line, BLANKING_VAL, LINE_WIDTH);
+	memset(half_vblank_half_equalization_line, SYNC_VAL,VBLANK_CLOCKS); 		
+	memset(&half_vblank_half_equalization_line[LINE_WIDTH/2], SYNC_VAL,SYNC_TIP_CLOCKS/2); 		
+	#endif 
 	
 	#ifdef USE_PAL
 	memset(vblank_and_short_sync,BLANKING_VAL,LINE_WIDTH);
@@ -403,39 +423,7 @@ user_render_func_t user_render_func = NULL;
 */
 
 
-/* TODO
 
-In NTSC:
-
-Vblank occupies lines 1–21 of each field:
-
-1-3 Equalizing,	
-4-6 Broad pulses,
-7-9 Equalizing
-
-None of these lines have colorburst.  All following lines do.
-
-Beyond that, lines 10-21 are available for use.
-In particular, lines 19 is used for VIR (Vertical Interval Reference)
-with the following specs:
-
-
-from 12uS, len=24uS: 70 IRE,  same chroma as colorburst
-len=12uS: 50 IRE luma,  no chroma
-len=12uS, 7.5 IRE (black) luma, no chroma
-
-A little more info on interlacing, and how to determine odd/even fields:
-
-https://forums.nesdev.org/viewtopic.php?t=7909
-
-Since USER_RENDER_RAW is never expected to render VBLANK, etc. we 
-can simply fudge the "line" parameter to the range 0-241.
-
-We should also have a USER_RENDER_YPI mode where we pass luma/chroma phase/saturation
-
-USER_RENDER_RGB might be a stretch :)
-
-*/
 
 volatile int next_dma_width = LINE_WIDTH;
 static void __not_in_flash_func(cvideo_dma_handler)(void) {
@@ -475,7 +463,7 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 
 		if (do_interlace) {
 			if (even_frame) {
-				next_dma_line = vblank_odd_line;
+				// next_dma_line = vblank_odd_line;
 				even_frame = 0;
 			}
 			else {
@@ -571,6 +559,142 @@ static void __not_in_flash_func(cvideo_dma_handler)(void) {
 }
 
 
+/* TODO
+
+In NTSC:
+
+Vblank occupies lines 1–21 of each field:
+
+1-3 Equalizing,	
+4-6 Broad pulses,
+7-9 Equalizing
+
+None of these lines have colorburst.  All following lines do.
+
+Beyond that, lines 10-21 are available for use.
+In particular, lines 19 is used for VIR (Vertical Interval Reference)
+with the following specs:
+
+
+from 12uS, len=24uS: 70 IRE,  same chroma as colorburst
+len=12uS: 50 IRE luma,  no chroma
+len=12uS, 7.5 IRE (black) luma, no chroma
+
+A little more info on interlacing, and how to determine odd/even fields:
+
+https://forums.nesdev.org/viewtopic.php?t=7909
+
+Since USER_RENDER_RAW is never expected to render VBLANK, etc. we 
+can simply fudge the "line" parameter to the range 0-241.
+
+We should also have a USER_RENDER_YPI mode where we pass luma/chroma phase/saturation
+
+USER_RENDER_RGB might be a stretch :)
+
+*/
+
+static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
+	
+    dma_channel_configure(dma_channel, &dma_channel_cfg,
+        dma_write_addr,              // Destination pointer
+        next_dma_line,                       // Source pointer
+        next_dma_width,          // Number of transfers
+        true                        // Start flag (true = start immediately)
+    );
+	
+//    dma_channel_set_read_addr(dma_channel, next_dma_line, true);
+    dma_hw->ints0 = 1 << dma_channel;		
+
+	// User line callback goes here so we don't get a bunch
+	// of jitter in audio.
+	// if (user_new_line_func != NULL) { user_new_line_func(line); }
+
+
+	// We should ALWAYS set the read address to whatever we decided it should be
+	// last time, unless we're in vblank.  Then we determine what the next DMA line is.
+	// This way we don't get an extra line(s) when switching between black lines and 
+	// framebuffer lines.
+
+
+	// Lines 1-3: Pre-Equalizing
+	if (line < 4) {
+		next_dma_line = equalization_line;		
+	}
+	
+	// Lines 4,5,6 : VBLANK
+	else if (line < 7) {
+		next_dma_line = vblank_line;		
+	}
+	
+	// Lines 7,8,9 : Post-Equalizing
+	else if (line < 10) {
+		next_dma_line = equalization_line;
+	}
+	
+	// Lines 10-21: Black
+	else if (line < 22 ) {
+		next_dma_line = black_line;		
+	}
+
+	// Lines 22-262: Video
+	else if (line < 263) {
+		next_dma_line = pingpong_lines[line & 1];			
+		user_render_raw_func((line-21),VIDEO_START,pingpong_lines[line & 1]);				
+	}
+
+	// Line 263: Half-line, half-equalizing
+	else if (line == 263) {
+		next_dma_line = half_black_half_equalization_line;		
+	}
+
+	// Line 264,265: Pre-Equalizing
+	else if (line < 266) {
+		next_dma_line = equalization_line;		
+	}
+
+	// Line 266: Half-equalizing, half-VBLANK 
+	else if (line == 266) {
+		next_dma_line = half_equalization_half_vblank_line;					
+	}
+
+	// Line 267,268: VBLANK
+	else if (line < 269) {
+		next_dma_line = vblank_line;				
+	}
+	
+	// Line 270: half VBLANK, half-equalizing
+	else if (line == 270) {
+		next_dma_line = half_vblank_half_equalization_line;					
+	}
+	
+	// Line 271,272: Post-Equalizing
+	else if (line < 273) {
+		next_dma_line = equalization_line;			
+	}
+	
+	// Line 273: half-equalizing, half-black
+	else if (line == 273) {
+		next_dma_line = half_equalization_half_black_line;				
+	}
+	
+	// Lines 274-284: Black
+	else if (line < 285) {
+		next_dma_line = black_line;		
+	}
+	
+	// Lines 275+: Video
+	else {
+		// next_dma_line = black_line;
+
+		next_dma_line = pingpong_lines[line & 1];			
+		user_render_raw_func((line-275) >> 1,VIDEO_START,pingpong_lines[line & 1]);				
+		//user_render_raw_func(line >> 1,VIDEO_START,pingpong_lines[line & 1]);		
+	}
+
+	line++;
+	if (line > 525) { line = 1; }	
+}
+
 
 
 void init_video_lines() {
@@ -640,7 +764,11 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
     );
     	
 	dma_channel_set_irq0_enabled(dma_channel, true);
-    irq_set_exclusive_handler(DMA_IRQ_0, cvideo_dma_handler);
+	#ifdef USE_PAL
+		irq_set_exclusive_handler(DMA_IRQ_0, cvideo_dma_handler);
+	#else
+		irq_set_exclusive_handler(DMA_IRQ_0, ntsc_video_dma_handler);
+	#endif
     irq_set_enabled(DMA_IRQ_0, true);
 
 	// Set the clock divisor
