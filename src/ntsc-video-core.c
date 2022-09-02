@@ -247,7 +247,7 @@ void make_color_burst(uint8_t* line, float cb_phase) {
 	
 	// PALFIX
 	// Is this correct for PAL?
-	float phase = COLOR_BURST_PHASE_DEGREES/cb_phase * 3.14159;	// Starting phase.
+	float phase = (COLOR_BURST_PHASE_DEGREES+cb_phase)/180 * 3.14159;	// Starting phase.
 	#ifdef USE_PAL
 	for (int i=0; i<10; i++) {
 		for (int n=0; n<SAMPLES_PER_CLOCK; n++) {
@@ -284,14 +284,14 @@ void make_black_line() {
 	// Start HSYNC here
 	black_line[LINE_WIDTH-1] = 0;
 	
-	#ifdef USE_PAL
-		make_color_burst(black_line,135.0);
-		make_color_burst(black_line_2,225.0);	
-	#else
 	if (do_color) {
-		make_color_burst(black_line,180.0);
+		#ifdef USE_PAL
+		make_color_burst(black_line,0);
+		make_color_burst(black_line_2,180.0);	
+		#else
+		make_color_burst(black_line,0.0);
+		#endif
 	}
-	#endif
 	// Need to alternate phase for line 2
 
 	#ifdef ALTERNATE_COLORBURST_PHASE
@@ -324,11 +324,11 @@ void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase,
 	if (do_colorburst) {
 		#ifdef USE_PAL
 		if (is_even_line)
-			make_color_burst(dest,180.0);
+			make_color_burst(dest,0);
 		else
-			make_color_burst(dest,180.0);			
+			make_color_burst(dest,47);			
 		#else
-		make_color_burst(dest,180.0);
+		make_color_burst(dest,0.0);
 		#endif
 	}
 }

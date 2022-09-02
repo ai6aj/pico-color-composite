@@ -94,7 +94,7 @@ static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, 
 
 	uint16_t* dest = (uint16_t*)(&output_buffer[video_start]);	
 	uint16_t* palette16 = (uint16_t*)palette;
-	// line >>= 1;
+	line >>= 1;
 /*
 	if (xeven_frame) {
 		for (int i=0; i<384; i+=2) {

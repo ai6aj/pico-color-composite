@@ -36,7 +36,7 @@ float get_video_core_load();
 // #define SYS_CLOCK_KHZ	120000
 // #define SYS_CLOCK_KHZ	133000
 //#define SYS_CLOCK_KHZ	157500
-#define SYS_CLOCK_KHZ	266000
+#define SYS_CLOCK_KHZ	150000
 
 // The phase of the generated colorburst signal.  
 // Old video hardware had a pot you could adjust to tune the
@@ -75,7 +75,7 @@ extern volatile int in_vblank;
 #define MAX_DAC_OUT	((1 << DAC_BITS)-1)
 #define MIN_DAC_OUT	0
 
-#define USE_PAL
+#define USE_NTSC
 
 #ifdef USE_PAL
 	
@@ -103,13 +103,13 @@ extern volatile int in_vblank;
 	*/
 
 	#define BLANKING_VAL		(uint)(((45.0/143.0)*(float)MAX_DAC_OUT)+0.5)
-	#define COLOR_BURST_HI_VAL	(uint)(((65.0/143.0)*(float)MAX_DAC_OUT)+0.5)
-	#define COLOR_BURST_LO_VAL	(uint)(((25.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_HI_VAL	(uint)(((55.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define COLOR_BURST_LO_VAL	(uint)(((35.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 
 //	#define COLOR_BURST_HI_VAL	(uint)(((43.0/100.0)*(float)MAX_DAC_OUT)+0.5)
 //	#define COLOR_BURST_LO_VAL	(uint)(((14.0/100.0)*(float)MAX_DAC_OUT)+0.5)
 	#define SYNC_VAL			MIN_DAC_OUT
-	#define BLACK_LEVEL			(uint)(((50.0/143.0)*(float)MAX_DAC_OUT)+0.5)
+	#define BLACK_LEVEL			(uint)(((45.0/143.0)*(float)MAX_DAC_OUT)+0.5)
 	#define WHITE_LEVEL			MAX_DAC_OUT
 	#define LUMA_SCALE			(WHITE_LEVEL-BLACK_LEVEL)
 
@@ -118,7 +118,10 @@ extern volatile int in_vblank;
 		Values needed to make timing calculations
 	*/
 
-	#define PAL_COLORBURST_MHZ		4.43361875
+	// PAL colorburst timing is much more finicky than NTSC for some reason.
+	// The fraction below adjusts the colorburst frequency so it works on
+	// my (admittedly bad) equipment.
+	#define PAL_COLORBURST_MHZ		(4.43361875 * 180.54/180.0)
 	#define PAL_COLORBURST_FREQ	(PAL_COLORBURST_MHZ*1000000)
 	#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*PAL_COLORBURST_MHZ)
 	#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
@@ -140,16 +143,18 @@ extern volatile int in_vblank;
 		Various timings needed to generate a proper PAL signal.
 	*/
 	#define SYNC_TIP_CLOCKS 	(int)(4.7/(SAMPLE_LENGTH_US)+0.5)
-	#define COLOR_BURST_START	(int)(5.6/(SAMPLE_LENGTH_US)+0.5)
+	#define COLOR_BURST_START	(int)(5.35/(SAMPLE_LENGTH_US)+0.5)
+
 	#define VBLANK_CLOCKS		(int)(27.3/(SAMPLE_LENGTH_US)+0.5)
 	#define SHORT_SYNC_CLOCKS	(int)(2.35/(SAMPLE_LENGTH_US)+0.5)
 
 	// VIDEO_START *MUST* be 32-bit aligned.
-	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*50+1)
+	#define VIDEO_START			(SAMPLES_PER_CLOCK*50)
 	#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 
 	#define LINES_PER_FRAME			312
 	#define COLORBURST_FREQ	PAL_COLORBURST_FREQ
+	#define VIDEO_START_PHASE_SHIFT	0
 
 #else // NTSC
 
@@ -167,7 +172,7 @@ extern volatile int in_vblank;
 		Values needed to make timing calculations
 	*/
 
-	#define NTSC_COLORBURST_MHZ		3.5795454
+	#define NTSC_COLORBURST_MHZ		(3.5795454)
 	#define NTSC_COLORBURST_FREQ	(NTSC_COLORBURST_MHZ*1000000)
 	#define CLOCK_FREQ (float)(SAMPLES_PER_CLOCK*NTSC_COLORBURST_MHZ)
 	#define SAMPLE_LENGTH_US	(1.0/CLOCK_FREQ)
@@ -194,16 +199,16 @@ extern volatile int in_vblank;
 	#define VBLANK_CLOCKS		(int)(27.1/(SAMPLE_LENGTH_US)+0.5)
 	
 	// VIDEO_START *MUST* be 32-bit aligned.
-	#define VIDEO_START			(COLOR_BURST_START+SAMPLES_PER_CLOCK*15)
+	#define VIDEO_START			(SAMPLES_PER_CLOCK*50)
 	#define VIDEO_LENGTH		192*SAMPLES_PER_CLOCK
 	
 	#define LINES_PER_FRAME			262
 	#define COLORBURST_FREQ	NTSC_COLORBURST_FREQ
+	#define VIDEO_START_PHASE_SHIFT	0
 
 #endif
 // The chroma phase shift needed to adjust for VIDEO_START.  This
 // will typically be some fraction of pi.
-#define VIDEO_START_PHASE_SHIFT	0 // 3.14159
 
 
 // The amount of time to display a black screen
