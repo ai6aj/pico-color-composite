@@ -1,6 +1,6 @@
 # pico-color-composite
 
-NTSC color composite video output for Rasperry Pi Pico
+Color (NTSC) and B&W (PAL) composite video output for Rasperry Pi Pico
 
 pico-color-composite outputs a composite video signal using an external 8-bit R/2R ladder using
 100 and 220 ohm 1% tolerance resistors.  The resistor values are not an exact 2:1 ratio due to
