@@ -168,7 +168,7 @@ static void __not_in_flash_func(framebuffer_render)(uint line, uint video_start,
 // (8/11/22)x10	 (48/34/17)x24
 // (8/11/22)x12	 (48/34/17)x20
 
-uint8_t	charBuffer[30*48];
+uint16_t	charBuffer[30*48];
 uint8_t	charSet[10*8*256];
 
 int chHeight = 8;
@@ -176,12 +176,12 @@ int chHeight = 8;
 int chStride = 48;	// Can be increased for scrolling purposes.
 int vscrol = 0;
 int hscrol = 0;
-
+int char_line_repeat = 0;
 static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, uint8_t* output_buffer) {	
 
 	uint16_t* dest = (uint16_t*)(&output_buffer[video_start]);	
 	uint16_t* palette16 = (uint16_t*)palette;
-	line >>= 1;
+	line >>= char_line_repeat;
 /*
 	if (xeven_frame) {
 		for (int i=0; i<384; i+=2) {
@@ -194,7 +194,7 @@ static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, 
 	
 	// Start of the line of characters in our character framebuffer.
 	int chBufOfs = chStride * ((line+vscrol) / chHeight) + (hscrol >> 3);
-	uint8_t* charLine = charBuffer + chBufOfs;
+	uint16_t* charLine = charBuffer + chBufOfs;
 	int chGridSize = 8*chHeight;
 	
 	// Y offset into the character data.
