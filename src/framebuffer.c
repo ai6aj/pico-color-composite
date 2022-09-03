@@ -1,6 +1,6 @@
 #include "framebuffer.h"
 #include <math.h>
-
+#include <stdlib.h>	
 
 /**********************************
  FRAMEBUFFER STUFF
