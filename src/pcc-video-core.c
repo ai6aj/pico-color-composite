@@ -1,10 +1,16 @@
-#include "ntsc-video-core.h"
-#include "ntsc-video-core.h"
-#include "pico-ntsc.pio.h"
+#include <stdio.h>
+#include "pico/stdlib.h"
+#include "pico/multicore.h"
 
-	// PALFIX
+#include <string.h>
+#include <math.h>
 
-const uint LED_PIN = PICO_DEFAULT_LED_PIN;
+#include "hardware/pio.h"
+#include "hardware/clocks.h"
+#include "hardware/irq.h"
+#include "hardware/dma.h"
+#include "pcc-video-core.h"
+#include "pcc-video-core.pio.h"
 
 
 int irq_count = 0;
@@ -15,132 +21,20 @@ int do_color = 1;
 
 
 
-/**********************************
- FRAMEBUFFER STUFF
- **********************************/
-uint8_t palette[256][4];
-volatile int in_vblank = 0;
 
 
-/*
-	Set the total line width, in color clocks.
-	ALTERNATE_COLORBURST_PHASE will generate proper 227.5
-	color clock lines but is only partially supported at
-	the moment (and doesn't seem to be necessary.)
-	
-	Note that a lot of old equipment uses 228 color clock
-	lines; a lot of new equipment doesn't sync well to this
-	but is just fine with 226 color clocks.  
-*/
-
-
-void setPaletteRaw(int num,float a,float b,float c,float d) {
-	palette[num][0] = BLACK_LEVEL+(uint8_t)(a*LUMA_SCALE);
-	palette[num][1] = BLACK_LEVEL+(uint8_t)(b*LUMA_SCALE);
-	palette[num][2] = BLACK_LEVEL+(uint8_t)(c*LUMA_SCALE);
-	palette[num][3] = BLACK_LEVEL+(uint8_t)(d*LUMA_SCALE);
-}
-
-#define XXBLACK_LEVEL 0
-
-/**
-	Generate a palette entry from an NTSC phase/intensity/luma
-	triplet.  Given the complexity of NTSC encoding it's highly recommended
-	to use setPaletteRGB instead.
-	
-	chroma_phase		Phase of the chroma signal with respect to colorburst
-	chroma_amplitude	Amplitude of the chroma signal
-	luminance			The black and white portion of the signal
-	
-*/
-void setPaletteNTSC(int num,float chroma_phase,float chroma_amplitude,float luminance) {
-		
-	// Hue = phase 
-	float sat_scaled = LUMA_SCALE * chroma_amplitude;
-	
-	// Saturation = amplitude of chroma signal.
-	
-	int tmp = BLACK_LEVEL + sin(chroma_phase + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
-	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
-	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
-	
-	
-	palette[num][0] = tmp;
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
-	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
-	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
-	
-	palette[num][1] = tmp;
-	
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
-	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
-	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
-	palette[num][2] = tmp;
-	
-	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159*3/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
-	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
-	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;palette[num][3] = tmp;
-	palette[num][3] = tmp;
-}
-
-void setPaletteRGB_float(int num,float r, float g, float b) {
-	// Calculate Y 
-	float y = 0.299*r + 0.587*g + 0.114*b;
-
-	// Determine (U,V)
-	float u = 0.492111 * (b-y);
-	float v = 0.877283 * (r-y);
-
-	// Find S and H
-	float s = sqrt(u*u+v*v);
-	float h = atan2(v,u); // + (55/180 * 3.14159 * 2);
-	if (h < 0) h += 2*3.14159;
-	
-//	h += (55/180 * 3.14159);
-	// Use setPalletteHSL to set the palette
-	setPaletteNTSC(num,h,s,y);
-}
-
-
-void setPaletteRGB(int num,uint8_t r, uint8_t g, uint8_t b) {
-	float rf = (float)r/255.0;
-	float gf = (float)g/255.0;
-	float bf = (float)b/255.0;
-	setPaletteRGB_float(num,rf,gf,bf);
-}
-
-
-/* --------------------------------
-	DISPLAY LIST LOGIC
-   --------------------------------
-  
-Here we borrow heavily from Atari's ANTIC display processor.  
-
-JMP - not useful for norm
-JMP AND WAIT FOR VBLANK
 
 /* --------------------------------
  SIGNAL GENERATOR
    -------------------------------- */
-uint dma_channel;
+volatile int pcc_in_vblank = 0;
 
+uint dma_channel;
 dma_channel_config dma_channel_cfg;
 
 volatile void *dma_write_addr;
 
 
-
-/*
-	Buffers for our vblank line etc.
-	
-	Note that virtually every TV made since the late 70s is 
-	perfectly happy with one long VSYNC pulse and does not use
-	the pre/post equalization pulses.  So there's no point in
-	implementing the full VBLANK spec unless you have an absolutely
-	ancient analog TV that you want to use.
-	
-*/
-uint8_t test_line[LINE_WIDTH+1];
 
 uint8_t vblank_line[LINE_WIDTH+1];
 
@@ -166,9 +60,6 @@ uint8_t half_vblank_half_equalization_line[LINE_WIDTH+1];
 
 
 uint8_t black_line[LINE_WIDTH+1];
-uint8_t black_line_2[LINE_WIDTH];
-
-uint8_t* black_lines[2] = {black_line,black_line_2 };
 
 uint8_t __scratch_x("ntsc") pingpong_line_0[LINE_WIDTH];
 uint8_t __scratch_y("ntsc") pingpong_line_1[LINE_WIDTH];
@@ -176,13 +67,12 @@ uint8_t __scratch_y("ntsc") pingpong_line_1[LINE_WIDTH];
 uint8_t* pingpong_lines[] = { pingpong_line_0, pingpong_line_1 };
 
 
-
-void make_vsync_line() {
+void make_vsync_lines() {
 	int ofs = 0;
 	memset(vblank_line,BLANKING_VAL,LINE_WIDTH);
 	
-	// PALFIX
-	// This is almost certainly wrong for PAL
+	// PAL and NTSC share a common "broad pulse" line that 
+	// signifies vertical sync.
 	memset(vblank_line,SYNC_VAL,VBLANK_CLOCKS); 		
 	memset(&vblank_line[LINE_WIDTH/2],SYNC_VAL,VBLANK_CLOCKS);
 
@@ -194,14 +84,12 @@ void make_vsync_line() {
 	// Do the HSYNC pulse.  The front porch has been drawn
 	// by the previous DMA transfer, now provide 4.7uS
 	// of SYNC pulse
-
 	memset(half_black_half_equalization_line, BLANKING_VAL, LINE_WIDTH);
 	memset(half_black_half_equalization_line, SYNC_VAL,SYNC_TIP_CLOCKS);
 	memset(&half_black_half_equalization_line[LINE_WIDTH/2], SYNC_VAL,SYNC_TIP_CLOCKS/2);
 	
 	memset(half_equalization_half_black_line, BLANKING_VAL, LINE_WIDTH);
 	memset(half_equalization_half_black_line, SYNC_VAL,SYNC_TIP_CLOCKS/2);
-//	memset(&half_equalization_half_black_line[LINE_WIDTH/2], BLACK_LEVEL, LINE_WIDTH/2);
 
 	memset(half_equalization_half_vblank_line, BLANKING_VAL, LINE_WIDTH);
 	memset(half_equalization_half_vblank_line, SYNC_VAL,SYNC_TIP_CLOCKS/2);
@@ -265,45 +153,6 @@ void make_color_burst(uint8_t* line, float cb_phase) {
 	#endif
 }
 
-void make_black_line() {
-	// Set everything to the blanking level
-	memset(black_line,BLANKING_VAL,LINE_WIDTH);
-	
-	// Do the HSYNC pulse.  The front porch has been drawn
-	// by the previous DMA transfer, now provide 4.7uS
-	// of SYNC pulse
-	memset(black_line,SYNC_VAL,SYNC_TIP_CLOCKS);
-	
-	// Do our colorburst
-	
-	// Starts at 5.3uS = 37.94318 clocks
-
-
-	memcpy(black_line_2,black_line,LINE_WIDTH);
-
-	// Start HSYNC here
-	black_line[LINE_WIDTH-1] = 0;
-	
-	if (do_color) {
-		#ifdef USE_PAL
-		make_color_burst(black_line,0);
-		make_color_burst(black_line_2,180.0);	
-		#else
-		make_color_burst(black_line,0.0);
-		#endif
-	}
-	// Need to alternate phase for line 2
-
-	#ifdef ALTERNATE_COLORBURST_PHASE
-	
-	if (do_color) {
-		make_color_burst(black_line_2,1,1);
-	}
-	#endif
-	// Video officially begins at 9.4uS / 67.2954 clocks
-	// Start at 68 to be in phase with clock signal	
-}
-
 /**
 	Fill a linebuffer with skeleton HSYNC, colorburst, and black signals.
 	
@@ -311,7 +160,7 @@ void make_black_line() {
 	use_alternate_phase		If true, invert the colorburst phase 180 degrees
 	
 **/
-void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase, int is_even_line) {
+void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase) {
 	// Set everything to the blanking level
 	memset(dest,BLACK_LEVEL,LINE_WIDTH);
 	
@@ -322,133 +171,40 @@ void make_normal_line(uint8_t* dest, int do_colorburst, int use_alternate_phase,
 	
 	// Fill in colorburst signal if desired
 	if (do_colorburst) {
-		#ifdef USE_PAL
-		if (is_even_line)
-			make_color_burst(dest,0);
+		if (use_alternate_phase)
+			make_color_burst(dest,180);
 		else
-			make_color_burst(dest,47);			
-		#else
-		make_color_burst(dest,0.0);
-		#endif
+			make_color_burst(dest,0);			
 	}
 }
-
-
-uint8_t* video_lines[240];
-
-int even_frame = 1; 	// 0 = odd, 1 = even
-
-
-
-
-
-// If true, will generate an interlaced TV signal
-// Currently jitters a lot possibly due to a bug in
-// odd/even field ordering
-int do_interlace = 1;
-
-
-
 
 int line = 0;
 int frame = 0;
 uint8_t*	next_dma_line = vblank_line;
 
-/* --------------------------------------------------------------------------------------------------------------
- 	Generate video using a display list.  
-   --------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-// Basic display list for a 200 line display.
-display_list_t sample_display_list[] = { DISPLAY_LIST_USER_RENDER_RAW, 200,
-							  DISPLAY_LIST_WVB,0 };
-
-// Our initial display list is just a black display.  This allows the TV time to 
-// lock VBLANK.
-volatile int startup_frame_counter = STARTUP_FRAME_DELAY;
-display_list_t startup_display_list[] = { DISPLAY_LIST_WVB, 0 };
-
-display_list_t* display_list_ptr = startup_display_list;
-display_list_t* next_display_list = sample_display_list;
-
-void set_display_list(display_list_t *display_list) {
-	next_display_list = display_list;
-}
-
-
-display_list_t  display_list_current_cmd = 0;
-display_list_t display_list_lines_remaining = 0;
-display_list_t display_list_ofs = 0;
-
-/*
-	User routine to generate a line
-	
-	This is how Pico-XL will simulate ANTIC.
-*/
-int framebuffer_line_offset = 35;
-
-/*
-uint8_t user_line[320];
-
-
-static uint8_t* __not_in_flash_func(user_render_ex)(uint line) {
-	for (int i=0; i<160; i++) { user_line[i] = framebuffer[line-framebuffer_line_offset][i]; };
-	return user_line;
-}
-*/
-
 int frcount = 0;
 
-static void __not_in_flash_func(user_render)(uint line, uint8_t* dest,user_render_func_t user_func) {
-		uint8_t* sourceline = user_func(line);
-		uint8_t* colorptr;
-		frcount++;
-		int ofs = VIDEO_START;
+pcc_user_render_raw_func_t	*user_render_raw_func = NULL;
+pcc_user_vblank_func_t *user_vblank_func = NULL;
+pcc_user_new_line_func_t *user_new_line_func = NULL;
 
-		for (int i=0; i<160; i++) {
-			colorptr = palette[sourceline[i]];
-		
-			// The compiler will optimize this		
-			dest[ofs] = colorptr[0];
-			dest[ofs+1] = colorptr[1];
-			dest[ofs+2] = colorptr[2];
-			dest[ofs+3] = colorptr[3];
-			ofs += 4;
-		}
-}
-
-user_render_raw_func_t	*user_render_raw_func = NULL;
-user_vblank_func_t *user_vblank_func = NULL;
-user_new_line_func_t *user_new_line_func = NULL;
-
-void set_user_render_raw(user_render_raw_func_t *f) {
+void pcc_set_user_render_raw(pcc_user_render_raw_func_t *f) {
 	user_render_raw_func = f;
 }
 
-void set_user_vblank(user_vblank_func_t *f) {
+void pcc_set_user_vblank(pcc_user_vblank_func_t *f) {
 	user_vblank_func = f;
 }
 
-// Typically used for audio output
-void set_user_new_line_callback(user_new_line_func_t *f) {
+void pcc_set_user_new_line_callback(pcc_user_new_line_func_t *f) {
 	user_new_line_func = f;
 }
 
-user_render_func_t user_render_func = NULL; 
-// Called back on every new line, with line #
-
-/*
-
-	Generate a video line from the framebuffer
-	
-*/
-
-
-
-
 volatile int next_dma_width = LINE_WIDTH;
+
+/*---------------------------------------
+	PAL signal generation.
+  ---------------------------------------*/
 
 #ifdef USE_PAL
 static void __not_in_flash_func(pal_video_dma_handler)(void) {
@@ -482,6 +238,7 @@ static void __not_in_flash_func(pal_video_dma_handler)(void) {
 
 	// Lines 1-2: Broad Sync
 	if (line < 3) {
+		pcc_in_vblank = 1;
 		next_dma_line = pal_broad_sync;		
 	}
 	
@@ -497,19 +254,18 @@ static void __not_in_flash_func(pal_video_dma_handler)(void) {
 	
 	// Lines 6-310: Video
 	else if (line < 311) {
-		in_vblank = 0;
-		next_dma_line = pingpong_lines[line & 1];
-
-		// Remap the NTSC interlaced lines to progressive
-		// scan lines for ease of rendering... the user render
-		// function will see requests to draw lines 0-484 issued 
-		// out of order; to do a traditional 242 line "pseudo progressive"
-		// display the render function should simply discard the LSB.
-		user_render_raw_func((line-6)*2,VIDEO_START,pingpong_lines[line & 1]);				
+		pcc_in_vblank = 0;
+		if (user_render_raw_func) {
+			next_dma_line = pingpong_lines[line & 1];
+			user_render_raw_func((line-6)*2,VIDEO_START,pingpong_lines[line & 1]);				
+		}
+		else
+			next_dma_line = black_line;
 	}
 
 	// Lines 311-312: Short Sync
-	else if (line < 313) {
+	else if (line < 313) {		
+		pcc_in_vblank = 1;
 		next_dma_line = pal_short_sync;		
 	}
 
@@ -535,9 +291,14 @@ static void __not_in_flash_func(pal_video_dma_handler)(void) {
 	
 	// Line 319-622: Video
 	else if (line < 623) {
-		in_vblank = 0;
-		next_dma_line = pingpong_lines[line & 1];			
-		user_render_raw_func((line-319)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
+		pcc_in_vblank = 0;
+		if (user_render_raw_func) {
+			next_dma_line = pingpong_lines[line & 1];			
+			user_render_raw_func((line-319)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
+		}
+		else
+			next_dma_line = black_line;
+		
 		//user_render_raw_func(line >> 1,VIDEO_START,pingpong_lines[line & 1]);		
 	}
 	
@@ -557,40 +318,9 @@ static void __not_in_flash_func(pal_video_dma_handler)(void) {
 #endif
 
 
-/* TODO
-
-In NTSC:
-
-Vblank occupies lines 1–21 of each field:
-
-1-3 Equalizing,	
-4-6 Broad pulses,
-7-9 Equalizing
-
-None of these lines have colorburst.  All following lines do.
-
-Beyond that, lines 10-21 are available for use.
-In particular, lines 19 is used for VIR (Vertical Interval Reference)
-with the following specs:
-
-
-from 12uS, len=24uS: 70 IRE,  same chroma as colorburst
-len=12uS: 50 IRE luma,  no chroma
-len=12uS, 7.5 IRE (black) luma, no chroma
-
-A little more info on interlacing, and how to determine odd/even fields:
-
-https://forums.nesdev.org/viewtopic.php?t=7909
-
-Since USER_RENDER_RAW is never expected to render VBLANK, etc. we 
-can simply fudge the "line" parameter to the range 0-241.
-
-We should also have a USER_RENDER_YPI mode where we pass luma/chroma phase/saturation
-
-USER_RENDER_RGB might be a stretch :)
-
-*/
-
+/*---------------------------------------
+	NTSC signal generation.
+  ---------------------------------------*/
 #ifdef USE_NTSC
 static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	
@@ -615,7 +345,7 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	// framebuffer lines.
 
 	if (line == 1 || line == 264) {
-		in_vblank = 1;
+		pcc_in_vblank = 1;
 		if (user_vblank_func != NULL) {
 			user_vblank_func();
 		}
@@ -643,15 +373,13 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 
 	// Lines 21-262: Video
 	else if (line < 263) {
-		in_vblank = 0;
-		next_dma_line = pingpong_lines[line & 1];
-
-		// Remap the NTSC interlaced lines to progressive
-		// scan lines for ease of rendering... the user render
-		// function will see requests to draw lines 0-484 issued 
-		// out of order; to do a traditional 242 line "pseudo progressive"
-		// display the render function should simply discard the LSB.
-		user_render_raw_func((line-21)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
+		pcc_in_vblank = 0;
+		if (user_render_raw_func) {
+			next_dma_line = pingpong_lines[line & 1];
+			user_render_raw_func((line-21)*2+1,VIDEO_START,pingpong_lines[line & 1]);				
+		}
+		else
+			next_dma_line = black_line;
 	}
 
 	// Line 263: Half-line, half-equalizing
@@ -699,10 +427,13 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 	// Lines 284+: Video
 	else {
 		// next_dma_line = black_line;
-		in_vblank = 0;
-		next_dma_line = pingpong_lines[line & 1];			
-		user_render_raw_func((line-283)*2,VIDEO_START,pingpong_lines[line & 1]);				
-		//user_render_raw_func(line >> 1,VIDEO_START,pingpong_lines[line & 1]);		
+		pcc_in_vblank = 0;
+		if (user_render_raw_func) {
+			next_dma_line = pingpong_lines[line & 1];			
+			user_render_raw_func((line-283)*2,VIDEO_START,pingpong_lines[line & 1]);
+		}
+		else 
+			next_dma_line = black_line;
 	}
 
 	line++;
@@ -711,35 +442,23 @@ static void __not_in_flash_func(ntsc_video_dma_handler)(void) {
 #endif
 
 
+void pcc_enable_colorburst(int value) {
+	do_color = value ? 1 : 0;
+	make_normal_line(black_line,do_color,0);
+	make_normal_line(pingpong_lines[0],do_color,0);
+	#ifdef USE_PAL
+		make_normal_line(pingpong_lines[1],do_color,1);
+	#else
+		make_normal_line(pingpong_lines[1],do_color,0);
+	#endif	
+}
+
 void init_video_lines() {
 	// Initialize video_line to alternating 1s and 2s
-	make_vsync_line();
+	make_vsync_lines();
 	
-	// PALFIX
-	// Is this needed?
-	for (int i=0; i<768; i++) {
-		test_line[i] = i/3;
-	}
-	
-	make_normal_line(black_lines[0],do_color,0,0);
-	make_normal_line(black_lines[1],do_color,0,1);
-	make_normal_line(pingpong_lines[0],do_color,0,0);
-	make_normal_line(pingpong_lines[1],do_color,0,1);
-
-	// Is this needed?
-	pingpong_lines[0][800] = 31;
-	pingpong_lines[0][801] = 31;
-	pingpong_lines[1][800] = 31;
-	pingpong_lines[1][801] = 31;
-
-	// Is this needed?
-	for (int i=VIDEO_START; i<VIDEO_LENGTH; i+=SAMPLES_PER_CLOCK) {
-				pingpong_lines[0][i+0] = 15;
-				pingpong_lines[0][i+1] = 15;
-				pingpong_lines[0][i+2] = 15;
-				pingpong_lines[0][i+3] = 15;
-	}
-
+	// Color is on by default.
+	pcc_enable_colorburst(1);
 }
 
 void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
@@ -808,44 +527,45 @@ void start_video(PIO pio, uint sm, uint offset, uint pin, uint num_pins) {
 	Main thread
    -------------------------------------*/
 
-user_video_core_loop_func_t *user_video_core_loop_func = NULL; 
+pcc_user_video_core_loop_func_t *user_video_core_loop_func = NULL; 
 
 volatile uint32_t current_idle_count = -1;
 volatile uint32_t unloaded_idle_count = 0;
-float get_video_core_load() {
+float pcc_get_video_core_load() {
 	if (current_idle_count == -1) return -1;
 	return 1-(float)(current_idle_count)/(float)(unloaded_idle_count);
 }
 
-void set_user_video_core_loop(user_video_core_loop_func_t f) {
+void pcc_set_user_video_core_loop(pcc_user_video_core_loop_func_t f) {
 	user_video_core_loop_func = f;
 }
 
 
-void ntsc_video_core() {
+void pcc_video_core() {
 	
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &ntsc_composite_program);
 
-	gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
 	
     start_video(pio, 0, offset, FIRST_GPIO_PIN, DAC_BITS);
 	
 	uint32_t counter = 0;
 
+	while (!pcc_in_vblank);
+	while (pcc_in_vblank);
+	while (!pcc_in_vblank) counter++;
+	unloaded_idle_count = counter;
+
 	if (user_video_core_loop_func != NULL) {
+		// Set user_video_core_loop to supply your
+		// own code to run on Core 1.
 		user_video_core_loop_func();
 	}
 		
 	while (1) {
-			while (!in_vblank) counter++;
-			if (startup_frame_counter == 0) {
-				current_idle_count = counter;
-			} else {
-				unloaded_idle_count = counter;				
-			}
+			while (!pcc_in_vblank) counter++;
+			current_idle_count = counter;
 			counter = 0;		
-			while (in_vblank);
+			while (pcc_in_vblank);
 	}
 }

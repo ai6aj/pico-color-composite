@@ -5,22 +5,25 @@ extern "C" {
 #endif
 
 
-#include <stdlib.h>
-#include <stdio.h>
+#include <stdint.h>
 #include "pico/stdlib.h"
-#include "pico/multicore.h"
+void pcc_enable_colorburst(int value);
 
-#include <string.h>
-#include <math.h>
+typedef void (pcc_user_render_raw_func_t)(uint, uint, uint8_t*);
+typedef void (pcc_user_vblank_func_t)();
 
-#include "hardware/pio.h"
-#include "hardware/clocks.h"
-#include "hardware/irq.h"
-#include "hardware/dma.h"
+// Called back on every new line, with line #
+typedef void (pcc_user_new_line_func_t)(uint);
+typedef void (pcc_user_video_core_loop_func_t)(void);
 
-void ntsc_video_core();
+void pcc_set_user_new_line_callback(pcc_user_new_line_func_t);
+void pcc_set_user_render_raw(pcc_user_render_raw_func_t);
+void pcc_set_user_vblank(pcc_user_vblank_func_t);
+void pcc_set_user_video_core_loop(pcc_user_video_core_loop_func_t);
 
-float get_video_core_load();
+void pcc_video_core();
+
+float pcc_get_video_core_load();
 
 // This is almost an ideal multiple of the NTSC
 // colorburst signal, which gives us very low jitter.
@@ -34,14 +37,7 @@ float get_video_core_load();
 // The phase of the generated colorburst signal.  
 #define COLOR_BURST_PHASE_DEGREES 180.0
 
-/**********************************
- FRAMEBUFFER STUFF
- **********************************/
-extern uint8_t palette[256][4];
-
-
-void drawline (int x0, int y0, int x1, int y1, uint8_t color);
-extern volatile int in_vblank;
+extern volatile int pcc_in_vblank;
 
 /*
 	
@@ -167,69 +163,6 @@ extern volatile int in_vblank;
 
 #endif
 
-// The chroma phase shift needed to adjust for VIDEO_START.  This
-// will typically be some fraction of pi.
-
-
-// The amount of time to display a black screen
-// before turning on the video display.  This 
-// is needed to give the TV time to lock the 
-// VBLANK signal.
-#define STARTUP_FRAME_DELAY 10
-
-
-void setPaletteRaw(int num,float a,float b,float c,float d);
-
-#define XXBLACK_LEVEL 0
-
-/**
-	Generate a palette entry from an NTSC phase/intensity/luma
-	triplet.  Given the complexity of NTSC encoding it's highly recommended
-	to use setPaletteRGB instead.
-	
-	chroma_phase		Phase of the chroma signal with respect to colorburst
-	chroma_amplitude	Amplitude of the chroma signal
-	luminance			The black and white portion of the signal
-	
-*/
-void setPaletteNTSC(int num,float chroma_phase,float chroma_amplitude,float luminance);
-void setPaletteRGB_float(int num,float r, float g, float b);
-void setPaletteRGB(int num,uint8_t r, uint8_t g, uint8_t b);
-
-
-
-#define DISPLAY_LIST_BLACK_LINE		0
-#define DISPLAY_LIST_FRAMEBUFFER	1
-#define DISPLAY_LIST_WVB			2
-
-/* USER_RENDER expects a pointer to 256 color pixel data.
-   USER_RENDER_RAW allows you to render directly to the output stream. */
-#define DISPLAY_LIST_USER_RENDER		3	// Will stub out to USER_RENDER with the next display line
-#define DISPLAY_LIST_USER_RENDER_RAW	4	// Will stub out to USER_RENDER with the next display line
-
-// Basic display list for a 200 line display.
-typedef unsigned int display_list_t;
-extern display_list_t sample_display_list[];
-
-void set_display_list(display_list_t *display_list);
-
-// Our initial display list is just a black display.  This allows the TV time to 
-// lock VBLANK.
-extern volatile int startup_frame_counter;
-
-typedef uint8_t* (*user_render_func_t)(uint);
-typedef unsigned int display_list_t;
-typedef void (user_render_raw_func_t)(uint, uint, uint8_t*);
-typedef void (user_vblank_func_t)();
-
-// Called back on every new line, with line #
-typedef void (user_new_line_func_t)(uint);
-typedef void (user_video_core_loop_func_t)(void);
-
-void set_user_new_line_callback(user_new_line_func_t);
-void set_user_render_raw(user_render_raw_func_t);
-void set_user_vblank(user_vblank_func_t);
-void set_user_video_core_loop(user_video_core_loop_func_t);
 
 #ifdef __cplusplus
 }

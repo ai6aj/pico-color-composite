@@ -1,19 +1,105 @@
 #include "framebuffer.h"
+#include <math.h>
 
 
-#ifdef USE_PAL
-	#define	BLACK_LINE_COUNT	30
-#else
-	#define	BLACK_LINE_COUNT	18
-#endif
-display_list_t __scratch_y("ntsc_framebuffer") framebuffer_display_list[] = { 
-	DISPLAY_LIST_BLACK_LINE, BLACK_LINE_COUNT,
-	DISPLAY_LIST_USER_RENDER_RAW, 240,
-	DISPLAY_LIST_WVB,0 };
+/**********************************
+ FRAMEBUFFER STUFF
+ **********************************/
+uint8_t palette[256][4];
+
+
+/*
+	Set the total line width, in color clocks.
+	ALTERNATE_COLORBURST_PHASE will generate proper 227.5
+	color clock lines but is only partially supported at
+	the moment (and doesn't seem to be necessary.)
+	
+	Note that a lot of old equipment uses 228 color clock
+	lines; a lot of new equipment doesn't sync well to this
+	but is just fine with 226 color clocks.  
+*/
+
+
+void setPaletteRaw(int num,float a,float b,float c,float d) {
+	palette[num][0] = BLACK_LEVEL+(uint8_t)(a*LUMA_SCALE);
+	palette[num][1] = BLACK_LEVEL+(uint8_t)(b*LUMA_SCALE);
+	palette[num][2] = BLACK_LEVEL+(uint8_t)(c*LUMA_SCALE);
+	palette[num][3] = BLACK_LEVEL+(uint8_t)(d*LUMA_SCALE);
+}
+
+#define XXBLACK_LEVEL 0
+
+/**
+	Generate a palette entry from an NTSC phase/intensity/luma
+	triplet.  Given the complexity of NTSC encoding it's highly recommended
+	to use setPaletteRGB instead.
+	
+	chroma_phase		Phase of the chroma signal with respect to colorburst
+	chroma_amplitude	Amplitude of the chroma signal
+	luminance			The black and white portion of the signal
+	
+*/
+void setPaletteNTSC(int num,float chroma_phase,float chroma_amplitude,float luminance) {
+		
+	// Hue = phase 
+	float sat_scaled = LUMA_SCALE * chroma_amplitude;
+	
+	// Saturation = amplitude of chroma signal.
+	
+	int tmp = BLACK_LEVEL + sin(chroma_phase + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
+	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
+	
+	
+	palette[num][0] = tmp;
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
+	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
+	
+	palette[num][1] = tmp;
+	
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
+	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;
+	palette[num][2] = tmp;
+	
+	tmp = BLACK_LEVEL + sin(chroma_phase+3.14159*3/2 + VIDEO_START_PHASE_SHIFT)*sat_scaled + luminance*LUMA_SCALE;
+	tmp = tmp < BLACK_LEVEL ? BLACK_LEVEL : tmp;
+	tmp = tmp > WHITE_LEVEL ? WHITE_LEVEL : tmp;palette[num][3] = tmp;
+	palette[num][3] = tmp;
+}
+
+void setPaletteRGB_float(int num,float r, float g, float b) {
+	// Calculate Y 
+	float y = 0.299*r + 0.587*g + 0.114*b;
+
+	// Determine (U,V)
+	float u = 0.492111 * (b-y);
+	float v = 0.877283 * (r-y);
+
+	// Find S and H
+	float s = sqrt(u*u+v*v);
+	float h = atan2(v,u); // + (55/180 * 3.14159 * 2);
+	if (h < 0) h += 2*3.14159;
+	
+//	h += (55/180 * 3.14159);
+	// Use setPalletteHSL to set the palette
+	setPaletteNTSC(num,h,s,y);
+}
+
+
+void setPaletteRGB(int num,uint8_t r, uint8_t g, uint8_t b) {
+	float rf = (float)r/255.0;
+	float gf = (float)g/255.0;
+	float bf = (float)b/255.0;
+	setPaletteRGB_float(num,rf,gf,bf);
+}
+
+
 
 uint16_t framebuffer_line = 0;
 
-#define CHARBUFFER 1
+#define FRAMEBUFFER_HIRES
 
 #ifdef FRAMEBUFFER_LORES
 uint8_t framebuffer[240][192];
@@ -70,8 +156,10 @@ static void __not_in_flash_func(framebuffer_render)(uint line, uint video_start,
 	
 	framebuffer_line++;
 }
+
 #endif
 
+#define CHARBUFFER
 #ifdef CHARBUFFER
 // Valid tile sizes:
 // 22x16		 (17x15 char array)
@@ -88,7 +176,6 @@ int chHeight = 8;
 int chStride = 48;	// Can be increased for scrolling purposes.
 int vscrol = 0;
 int hscrol = 0;
-
 
 static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, uint8_t* output_buffer) {	
 
@@ -168,16 +255,23 @@ static void __not_in_flash_func(charbuffer_render)(uint line, uint video_start, 
 
 void init_framebuffer() {
 
+	// Generate the initial RGB palette
+	for (int i=0; i<256; i++) {
+		setPaletteRGB(i,(i & 0xE0), (i & 0x1C) << 3, (i & 0x3) << 6);
+	}
+		
+	// Fill the charBuffer
+
+	
 	for (int i=0; i<256; i++) {
 		setPaletteRGB(i,(i & 0xE0), (i & 0x1C) << 3, (i & 0x3) << 6);
 		for (int n=0; n<64; n++) {
 			charSet[i*64+n] = i;
 		}
 		charSet[i*64+(i & 0x7)*8 + (i & 0x7)] = 255;
-
 	}
 
-	// Fill the charBuffer
+
 	for (int y=0; y<30; y++) {
 		for (int x=0; x<48; x++) {
 			for (int n=0; n<64; n++) {
@@ -186,16 +280,16 @@ void init_framebuffer() {
 		}
 	}
 
-	set_user_render_raw(charbuffer_render);
-	set_user_vblank(framebuffer_vblank);
-	set_display_list(framebuffer_display_list);	
-
+	pcc_set_user_render_raw(charbuffer_render);
 
 /*
+	pcc_set_user_vblank(framebuffer_vblank);
+
+
+
 	framebuffer[128][128] = 0xFF;
-	set_user_render_raw(framebuffer_render);
-	set_user_vblank(framebuffer_vblank);
-	set_display_list(framebuffer_display_list);	
+	pcc_set_user_render_raw(framebuffer_render);
+	pcc_set_user_vblank(framebuffer_vblank);
 	for (int i=50; i<150; i++)
 		drawline(10,i,100,i,0x1C);
 	

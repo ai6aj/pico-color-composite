@@ -1,9 +1,7 @@
-#define USE_DISPLAY_LIST 1
-
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "ntsc-video-core.h"
+#include "pcc-video-core.h"
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -15,7 +13,7 @@ int __not_in_flash_func(main)() {
     stdio_init_all();
 	
 	init_framebuffer();	
-	multicore_launch_core1(ntsc_video_core);
+	multicore_launch_core1(pcc_video_core);
 	
 	
 //	memset(&framebuffer[100][0],2,160);
@@ -50,17 +48,23 @@ int __not_in_flash_func(main)() {
 	while(1) {
 		// Dump some output to USB serial to make sure it a. works at selected clock frequency
 		// and b. doesn't interfere with the display		
-		float f = get_video_core_load();
+		float f = pcc_get_video_core_load();
 		printf("Video core load %.1f%\n",f*100);
 		// sleep_ms(500);
 		// Don't update the palette until VBLANK
-		while (!in_vblank);
+		while (pcc_in_vblank);
 //		setPaletteRGB(0,(foo & 0xE0), (foo & 0x1C) << 3, (foo & 2) << 6);
 		foo++;
 //		vscrol++;
 		//hscrol+=2;
 		// Wait until we're out of VBLANK before proceeding
-		while (in_vblank);
+		while (!pcc_in_vblank);
+		
+/*		pcc_enable_colorburst(0);
+		sleep_ms(1000);
+		pcc_enable_colorburst(1);
+		sleep_ms(1000); */
+		
 //		while (in_vblank);
 //		set_player_hpos(0,hpos++);
 	}
